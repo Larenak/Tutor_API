@@ -1,0 +1,30 @@
+[project]
+name = "ai-tutor-backend"
+version = "0.1.0"
+description = "Backend for the AI EGE/OGE preparation platform"
+requires-python = ">=3.12"
+dependencies = [
+  "alembic>=1.14",
+  "email-validator>=2.2",
+  "fastapi>=0.115",
+  "pydantic-settings>=2.6",
+  "pwdlib[argon2]>=0.3",
+  "PyJWT>=2.10",
+  "psycopg[binary]>=3.2",
+  "sqlalchemy>=2.0",
+  "uvicorn[standard]>=0.32",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28",
+  "pytest>=8.3",
+  "ruff>=0.8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

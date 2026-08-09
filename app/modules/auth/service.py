@@ -27,10 +27,12 @@ async def _issue_tokens(db: AsyncSession, user_id: UUID) -> TokenRead:
     return TokenRead(user_id=user_id, access_token=access, refresh_token=refresh_token)
 
 
-async def register(db: AsyncSession, email: str, password: str, display_name: str | None) -> TokenRead:
+async def register(db: AsyncSession, email: str, password: str, display_name: str) -> TokenRead:
     normalized_email = email.lower()
     if await db.scalar(select(UserCredential).where(UserCredential.email == normalized_email)):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+    if await db.scalar(select(User).where(User.display_name == display_name)):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Display name already exists")
     user = User(display_name=display_name)
     db.add(user)
     await db.flush()

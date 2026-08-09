@@ -19,6 +19,8 @@ class UserStatus(str, enum.Enum):
 class User(UUIDTimestampMixin, Base):
     __tablename__ = "users"
 
-    display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.STUDENT)
-    status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.ACTIVE)
+    display_name: Mapped[str] = mapped_column(String(120), unique=True)
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole), default=UserRole.STUDENT)
+    status: Mapped[UserStatus] = mapped_column(
+        Enum(UserStatus), default=UserStatus.ACTIVE)

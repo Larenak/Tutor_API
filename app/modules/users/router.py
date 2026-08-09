@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.responses import SuccessResponse, success
@@ -23,6 +24,11 @@ async def update_me(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SuccessResponse[UserRead]:
+    existing_user = await db.scalar(
+        select(User).where(User.display_name == payload.display_name, User.id != current_user.id)
+    )
+    if existing_user:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Display name already exists")
     current_user.display_name = payload.display_name
     await db.commit()
     await db.refresh(current_user)

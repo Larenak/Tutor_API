@@ -1,3 +1,63 @@
+# Secrets and local configuration
 .env
+.env.*
+!.env.example
+
+# Virtual environments
 .venv/
-**__pycache__/
+venv/
+env/
+ENV/
+
+# Python caches and tooling
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.hypothesis/
+.tox/
+.nox/
+
+# Coverage and test reports
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+pytest-report.xml
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Local databases, logs, and runtime files
+*.sqlite
+*.sqlite3
+*.log
+*.pid
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.code-workspace
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local agent/workspace metadata
+.codex/
+.agents/
+
+# Downloaded source materials stay local; keep only their public description
+downloads/*
+!downloads/fipi-2026/
+downloads/fipi-2026/*
+!downloads/fipi-2026/README.md

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Прототип персональной подготовки к ЕГЭ по профильной математике">
+  <title>Вектор — подготовка к ЕГЭ</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand" aria-label="Вектор">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>вектор</span>
+      </div>
+
+      <div class="exam-chip">
+        <span class="exam-chip-icon">∑</span>
+        <span><small>Мой предмет</small><b>Профильная математика</b></span>
+        <span class="chevron">⌄</span>
+      </div>
+
+      <nav class="nav" aria-label="Главная навигация">
+        <p class="nav-label">Обучение</p>
+        <button class="nav-item active" data-page="dashboard"><span>⌂</span>Главная</button>
+        <button class="nav-item" data-page="roadmap"><span>↗</span>Мой маршрут</button>
+        <button class="nav-item" data-page="practice"><span>✎</span>Практика<b class="nav-badge">19</b></button>
+        <button class="nav-item" data-page="theory"><span>▤</span>Теория</button>
+        <p class="nav-label">Результаты</p>
+        <button class="nav-item" data-page="analytics"><span>⌁</span>Аналитика</button>
+        <button class="nav-item admin-only hidden" data-page="admin"><span>⚙</span>Управление</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button class="role-switch" id="role-switch" type="button">
+          <span class="avatar">АК</span>
+          <span><b id="role-name">Алексей</b><small id="role-label">Ученик · 11 класс</small></span>
+          <span class="switch-icon">⇄</span>
+        </button>
+        <p class="prototype-label">Прототип · результаты текущей сессии</p>
+      </div>
+    </aside>
+
+    <div class="main-column">
+      <header class="topbar">
+        <button class="mobile-menu" id="mobile-menu" aria-label="Открыть меню">☰</button>
+        <div class="mobile-brand">вектор</div>
+        <div class="topbar-actions">
+          <span class="source-pill"><i></i> ФИПИ · 2026</span>
+          <button class="icon-button" aria-label="Уведомления">♢<b></b></button>
+        </div>
+      </header>
+      <main id="view" tabindex="-1">
+        <div class="loading-state">
+          <span class="loader"></span>
+          <p>Собираем ваш учебный план…</p>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div class="toast-region" id="toast-region" aria-live="polite"></div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

@@ -222,6 +222,8 @@ CreateRoadmap
 Подписывается:
 
 - UserRegistered
+- EntryDiagnosticCompleted
+- TheoryCompleted
 - TaskSolved
 
 ---
@@ -230,6 +232,7 @@ CreateRoadmap
 
 Публикует:
 
+- EntryDiagnosticCompleted
 - ProgressUpdated
 - TopicCompleted
 - LessonCompleted
@@ -360,7 +363,23 @@ Users
 
 ↓
 
+Обязательная вступительная диагностика
+
+↓
+
+Progress
+
+↓
+
+EntryDiagnosticCompleted
+
+↓
+
 Roadmap
+
+↓
+
+RoadmapGenerated
 
 ↓
 

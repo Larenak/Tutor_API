@@ -96,6 +96,8 @@
 - TaskVariant
 - TaskSolution
 
+Каждый учебный Task, кроме диагностического, дополнительно связан с конкретным TheorySection и его проверяемыми навыками.
+
 ---
 
 ## Roadmap
@@ -107,6 +109,7 @@
 
 ## Progress
 
+- EntryDiagnosticResult
 - UserProgress
 - TopicProgress
 - TaskProgress
@@ -173,6 +176,7 @@
 ```text
 User
 │
+├── EntryDiagnosticResult
 ├── Progress
 ├── Subscription
 ├── Analytics

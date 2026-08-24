@@ -38,7 +38,9 @@ ERD используется для:
  Progress   Subscription Analytics Notification Roadmap   AIConversation
       |                                               |
       ▼                                               ▼
- TaskProgress                                   AIMessage
+ EntryDiagnosticResult                          AIMessage
+ TopicProgress
+ TaskProgress
 
 
 +----------------+        +----------------+        +----------------+
@@ -156,6 +158,7 @@ LeaderboardEntry
 
 | Сущность | Назначение |
 |----------|------------|
+| EntryDiagnosticResult | Результат обязательного вступительного теста и выявленные уязвимые темы |
 | UserProgress | Общий прогресс пользователя |
 | TopicProgress | Прогресс по теме |
 | TaskProgress | История решения заданий |
@@ -239,6 +242,7 @@ LeaderboardEntry
 User
 
 ├── RefreshToken
+├── EntryDiagnosticResult
 ├── UserProgress
 ├── Roadmap
 ├── Subscription
@@ -268,12 +272,16 @@ Subject
              └── TaskSolution
 ```
 
+Каждый учебный Task, кроме диагностического, связан одновременно с Topic и конкретным TheoryBlock (TheorySection) через `theory_section_id`.
+
 ---
 
 ## Прогресс обучения
 
 ```
 User
+
+├── EntryDiagnosticResult
 
 └── UserProgress
 

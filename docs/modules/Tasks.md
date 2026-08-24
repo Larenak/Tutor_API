@@ -1,7 +1,7 @@
 
-> Версия: 1.0  
+> Версия: 1.1
 > Статус: Проектирование  
-> Последнее обновление: 2026-07-09  
+> Последнее обновление: 2026-08-24
 > Ответственный: TBD  
 
 ---
@@ -20,6 +20,9 @@ Tasks отвечает за:
 - критерии проверки;
 - сложность;
 - принадлежность к темам;
+- связь с конкретными разделами теории и проверяемыми навыками;
+- назначение задания: диагностика, отработка теории или экзаменационная практика;
+- происхождение и атрибуция задания;
 - метаданные заданий.
 
 Модуль связывает задания с учебной структурой через модуль **Topics**.
@@ -36,6 +39,9 @@ Tasks отвечает за:
 - публикацию заданий;
 - управление версиями заданий;
 - связь заданий с темами;
+- связь заданий с TheorySection и проверяемыми навыками;
+- классификацию заданий по части экзамена и учебному назначению;
+- проверяемые метаданные источника, года и экзаменационной волны;
 - хранение условий задач;
 - хранение решений;
 - хранение ответов;
@@ -76,6 +82,8 @@ Tasks отвечает за:
 - отправлять уведомления;
 - изменять структуру тем;
 - обходить интерфейсы других модулей;
+- подменять точное соответствие теории совпадением общей темы или номера экзамена;
+- публиковать непроверенные задания второй части как задания реального экзамена;
 - создавать циклические зависимости.
 
 ---
@@ -332,8 +340,12 @@ VersionConflict
 - тип;
 - сложность;
 - статус;
-- источник;
-- номер задания ЕГЭ/ОГЭ.
+- учебное назначение: `diagnostic`, `theory_drill` или `exam_practice`;
+- раздел теории и проверяемые навыки;
+- часть и номер задания ЕГЭ/ОГЭ;
+- источник, внешний идентификатор и ссылку;
+- год и период экзамена для заданий реальных волн;
+- статус проверки источника и право на воспроизведение.
 
 ---
 
@@ -391,11 +403,25 @@ Fields:
 |-|-|-|
 | id | UUID | PK |
 | topic_id | UUID | FK |
+| theory_section_id | UUID | FK, NULL для диагностики |
 | title | VARCHAR | NOT NULL |
 | statement | TEXT | NOT NULL |
 | type | ENUM | NOT NULL |
 | difficulty | ENUM | NOT NULL |
 | exam_type | ENUM | NOT NULL |
+| learning_mode | ENUM | NOT NULL |
+| skill_tags | JSON | NOT NULL |
+| exam_part | SMALLINT | NULL |
+| exam_number | SMALLINT | NULL |
+| source_name | VARCHAR | NOT NULL |
+| source_external_id | VARCHAR | NOT NULL |
+| source_url | VARCHAR | NOT NULL |
+| attribution | TEXT | NOT NULL |
+| is_real_exam | BOOLEAN | DEFAULT false |
+| exam_year | SMALLINT | NULL |
+| exam_session | ENUM | NULL |
+| source_verified_at | TIMESTAMP | NULL |
+| rights_status | ENUM | NOT NULL |
 | status | ENUM | NOT NULL |
 | created_at | TIMESTAMP | NOT NULL |
 
@@ -405,9 +431,13 @@ Indexes:
 
 idx_tasks_topic_id
 
+idx_tasks_theory_section_id
+
 idx_tasks_type
 
 idx_tasks_difficulty
+
+idx_tasks_exam_part_session
 
 ```
 
@@ -419,6 +449,12 @@ topic_id FK
 
 statement NOT NULL
 
+(source_name, source_external_id) UNIQUE
+
+learning_mode != diagnostic -> theory_section_id NOT NULL
+
+exam_part = 2 AND status = published -> is_real_exam = true AND exam_session IN (main, early) AND exam_year IS NOT NULL AND source_verified_at IS NOT NULL
+
 ```
 
 Relationships:
@@ -426,6 +462,8 @@ Relationships:
 ```
 
 Task → Topic
+
+Task → TheorySection
 
 Task → TaskAnswer
 
@@ -593,7 +631,17 @@ get_history()
 
 select_tasks()
 
+select_diagnostic_tasks()
+
+select_theory_drills()
+
+select_exam_practice()
+
 filter_by_topic()
+
+filter_by_theory_section()
+
+filter_by_skill_tags()
 
 filter_by_difficulty()
 
@@ -617,6 +665,8 @@ Input:
 
 topic_id
 
+theory_section_id
+
 title
 
 statement
@@ -626,6 +676,30 @@ type
 difficulty
 
 exam_type
+
+learning_mode
+
+skill_tags
+
+exam_part
+
+exam_number
+
+source_name
+
+source_external_id
+
+source_url
+
+attribution
+
+is_real_exam
+
+exam_year
+
+exam_session
+
+rights_status
 
 answer
 
@@ -647,6 +721,32 @@ statement
 
 difficulty
 
+theory_section_id
+
+learning_mode
+
+skill_tags
+
+exam_part
+
+exam_number
+
+source_name
+
+source_external_id
+
+source_url
+
+attribution
+
+is_real_exam
+
+exam_year
+
+exam_session
+
+rights_status
+
 answer
 
 solution
@@ -667,11 +767,29 @@ id
 
 topic
 
+theory_section_id
+
 statement
 
 type
 
 difficulty
+
+learning_mode
+
+skill_tags
+
+exam_part
+
+exam_number
+
+source
+
+is_real_exam
+
+exam_year
+
+exam_session
 
 answer
 
@@ -725,11 +843,22 @@ Request:
 
 topic_id
 
+theory_section_id
+
 difficulty
 
 type
 
 exam_type
+
+
+learning_mode
+
+skill_tags
+
+exam_part
+
+exam_session
 
 ```
 
@@ -771,6 +900,16 @@ exam_type
 
 - Каждое задание принадлежит одной теме.
 - Задание не существует без темы.
+- Для профильной математики источником заданий MVP является каталог [СдамГИА («РЕШУ ЕГЭ»)](https://math-ege.sdamgia.ru/).
+- Каждое задание хранит проверяемую ссылку, внешний идентификатор и атрибуцию источника.
+- Задания вступительного теста имеют назначение `diagnostic`; это единственные задания, которые могут показываться до изучения теории.
+- Задание `theory_drill` связано с конкретным TheorySection и проверяет один или несколько навыков именно этого раздела.
+- Совпадение только Topic или номера экзамена недостаточно для выбора задания на отработку теории.
+- Для первой части допускаются любые задания СдамГИА, точно соответствующие текущему TheorySection и его навыкам; в версии ЕГЭ-2026 это №1–12.
+- Для второй части публикуются только задания реального ЕГЭ из основных или досрочных волн с подтверждёнными годом, периодом и источником; в версии ЕГЭ-2026 это №13–19.
+- Соответствие `exam_number` и `exam_part` версионируется по году экзамена и проверяется при обновлении официальной спецификации.
+- Тренировочные, авторские и AI-сгенерированные задания второй части не маркируются как реальные экзаменационные примеры.
+- Перед публикацией редактор подтверждает корректность метаданных и право платформы на воспроизведение условия, решения и изображений; автоматический импорт без проверки запрещён.
 - Опубликованные задания доступны ученикам.
 - Черновики доступны только редакторам.
 - Изменение опубликованного задания создает новую версию.
@@ -785,6 +924,9 @@ exam_type
 
 - Task всегда имеет уникальный идентификатор.
 - Task всегда связан с Topic.
+- Учебный Task, не относящийся к диагностике, всегда связан с TheorySection.
+- Опубликованный Task всегда имеет проверяемые данные источника и допустимый `rights_status`.
+- Опубликованный Task второй части, помеченный как реальный экзамен, всегда имеет `exam_year` и `exam_session` со значением `main` или `early`.
 - Task всегда имеет тип.
 - Task всегда имеет сложность.
 - Task всегда имеет статус.
@@ -851,6 +993,7 @@ TopicDeleted
 ## Использует
 
 - Topics;
+- Theory;
 - Media.
 
 ---
@@ -871,6 +1014,7 @@ TopicDeleted
 
 - проверку прав редакторов;
 - защиту экзаменационных материалов;
+- проверку происхождения, атрибуции и статуса прав на контент;
 - контроль публикации;
 - валидацию входных данных;
 - аудит изменений.
@@ -886,7 +1030,9 @@ TopicDeleted
 - публикация;
 - архивирование;
 - создание версий;
-- изменение решений.
+- изменение решений;
+- подтверждение или отклонение источника задания;
+- изменение года, экзаменационной волны, атрибуции и статуса прав.
 
 Не логируются:
 
@@ -906,7 +1052,7 @@ TopicDeleted
 - поддержка интерактивных заданий;
 - мультимедийные задачи;
 - математический редактор;
-- импорт заданий из внешних источников;
+- полуавтоматический импорт заданий из внешних источников с обязательной редакционной проверкой;
 - автоматическая проверка решений.
 
 ---
@@ -917,6 +1063,9 @@ TopicDeleted
 - Service содержит бизнес-логику.
 - Repository работает только с данными.
 - Проверка решений ученика находится вне Tasks.
+- TaskSelectionService не выдаёт обычную практику до завершения вступительного теста.
+- Для `theory_drill` отбор выполняется по TheorySection и навыкам, а не только по Topic или номеру экзамена.
+- Правила происхождения заданий первой и второй частей проверяются до публикации.
 - AI взаимодействует через сервисный слой.
 - Изменение структуры заданий сопровождается миграциями.
 - Все события документируются.

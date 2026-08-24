@@ -75,10 +75,79 @@ def test_roadmap_is_ordered_from_basic_to_expert(client: TestClient) -> None:
     assert [stage["number"] for stage in stages] == [1, 2, 3, 4, 5]
     assert stages[0]["difficulty"] == "basic"
     assert stages[-1]["difficulty"] == "expert"
+    assert stages[0]["topics"][0]["id"] == "vectors"
+    assert stages[0]["topics"][0]["lesson_state"] == "current"
+    assert stages[0]["topics"][1]["lesson_state"] == "locked"
     task_numbers = [number for stage in stages for number in stage["task_numbers"]]
     assert sorted(task_numbers) == list(range(1, 20))
-    assert all(topic["theory_href"].startswith("#theory-") for stage in stages for topic in stage["topics"])
-    assert all(task["href"].startswith("#practice-") for stage in stages for task in stage["tasks"])
+    assert all(topic["lesson_href"] == "#lessons" for stage in stages for topic in stage["topics"])
+    assert all(task["href"] == "#lessons" for stage in stages for task in stage["tasks"])
+
+
+def test_lesson_follows_roadmap_theory_practice_homework_order(client: TestClient) -> None:
+    lesson = client.get(
+        "/api/v1/exam/math-profile/lesson/current",
+        params={"session_id": "lesson-student"},
+    ).json()["data"]
+
+    assert lesson["topic"]["id"] == "vectors"
+    assert lesson["current_step"] == "theory"
+    assert [step["state"] for step in lesson["steps"]] == ["current", "locked", "locked"]
+    assert lesson["practice_task"]["id"] == "math-02"
+    assert lesson["homework_task"]["id"] == "math-02"
+    assert lesson["practice_task"]["prompt"] != lesson["homework_task"]["prompt"]
+
+    blocked = client.post(
+        "/api/v1/exam/math-profile/attempts",
+        json={
+            "session_id": "lesson-student",
+            "task_id": "math-02",
+            "answer": "-5",
+            "mode": "practice",
+            "lesson_unit_id": lesson["unit_id"],
+        },
+    )
+    assert blocked.status_code == 409
+
+    after_theory = client.post(
+        "/api/v1/exam/math-profile/lesson/theory/complete",
+        json={"session_id": "lesson-student", "lesson_unit_id": lesson["unit_id"]},
+    ).json()["data"]
+    assert after_theory["current_step"] == "practice"
+
+    practice = client.post(
+        "/api/v1/exam/math-profile/attempts",
+        json={
+            "session_id": "lesson-student",
+            "task_id": "math-02",
+            "answer": "-5",
+            "mode": "practice",
+            "lesson_unit_id": lesson["unit_id"],
+        },
+    ).json()["data"]
+    assert practice["is_correct"] is True
+    assert practice["lesson"]["current_step"] == "homework"
+
+    homework = client.post(
+        "/api/v1/exam/math-profile/attempts",
+        json={
+            "session_id": "lesson-student",
+            "task_id": "math-02",
+            "answer": "-5",
+            "mode": "homework",
+            "lesson_unit_id": lesson["unit_id"],
+        },
+    ).json()["data"]
+    assert homework["is_correct"] is True
+    assert homework["lesson"]["topic"]["id"] == "geometry"
+    assert homework["lesson"]["current_step"] == "theory"
+
+    roadmap = client.get(
+        "/api/v1/exam/math-profile/roadmap",
+        params={"session_id": "lesson-student"},
+    ).json()["data"]
+    assert roadmap["stages"][0]["topics"][0]["lesson_state"] == "completed"
+    assert roadmap["stages"][0]["topics"][1]["lesson_state"] == "current"
 
 
 def test_complex_tasks_and_admin_metrics_are_not_fabricated(client: TestClient) -> None:
@@ -117,3 +186,4 @@ def test_website_is_served(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert "Вектор — подготовка к ЕГЭ" in response.text
+    assert "Занятия" in response.text

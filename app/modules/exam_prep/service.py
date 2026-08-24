@@ -10,7 +10,17 @@ from app.modules.exam_prep.catalog import EXAM, ROADMAP_STAGES, TASKS, THEORY, T
 
 _lock = Lock()
 _attempts: dict[str, list[dict[str, object]]] = {}
+_theory_completions: dict[str, set[str]] = {}
 _published: dict[str, bool] = {str(task["id"]): True for task in TASKS}
+_HOMEWORK_TASK_OVERRIDES: dict[str, dict[str, object]] = {
+    "short-geometry:vectors": {
+        "prompt": (
+            "Самостоятельная работа. Даны векторы a = (2; −3) и b = (2; 3). "
+            "Найдите их скалярное произведение."
+        ),
+        "explanation": "a · b = 2 · 2 + (−3) · 3 = −5.",
+    }
+}
 
 
 def _task(task_id: str) -> dict[str, object]:
@@ -60,6 +70,230 @@ def _public_task(task: dict[str, object], include_answer: bool = False) -> dict[
     return result
 
 
+def _lesson_units() -> list[dict[str, object]]:
+    units: list[dict[str, object]] = []
+    for stage in ROADMAP_STAGES:
+        stage_numbers = {int(number) for number in stage["task_numbers"]}
+        for topic_id in stage["topic_ids"]:
+            topic = next(item for item in TOPICS if item["id"] == topic_id)
+            tasks = [
+                task
+                for task in TASKS
+                if task["topic_id"] == topic_id
+                and int(task["exam_number"]) in stage_numbers
+            ]
+            if not tasks:
+                continue
+            theory = next(item for item in THEORY if item["topic_id"] == topic_id)
+            unit_id = f"{stage['id']}:{topic_id}"
+            homework_task = deepcopy(tasks[-1])
+            homework_task.update(_HOMEWORK_TASK_OVERRIDES.get(unit_id, {}))
+            units.append(
+                {
+                    "id": unit_id,
+                    "stage_id": stage["id"],
+                    "stage_number": stage["number"],
+                    "stage_title": stage["title"],
+                    "topic": topic,
+                    "theory": theory,
+                    "tasks": tasks,
+                    "practice_task": tasks[0],
+                    "homework_task": homework_task,
+                }
+            )
+    return units
+
+
+def _session_theory_completions(session_id: str) -> set[str]:
+    with _lock:
+        return set(_theory_completions.get(session_id, set()))
+
+
+def _has_correct_lesson_attempt(
+    attempts: list[dict[str, object]],
+    unit_id: str,
+    mode: str,
+    task_id: str,
+) -> bool:
+    return any(
+        item.get("lesson_unit_id") == unit_id
+        and item.get("mode") == mode
+        and item["task_id"] == task_id
+        and bool(item["is_correct"])
+        for item in attempts
+    )
+
+
+def _lesson_unit_state(
+    unit: dict[str, object],
+    attempts: list[dict[str, object]],
+    theory_completions: set[str],
+) -> dict[str, object]:
+    unit_id = str(unit["id"])
+    practice_task = unit["practice_task"]
+    homework_task = unit["homework_task"]
+    theory_done = unit_id in theory_completions
+    practice_done = _has_correct_lesson_attempt(
+        attempts,
+        unit_id,
+        "practice",
+        str(practice_task["id"]),
+    )
+    homework_done = _has_correct_lesson_attempt(
+        attempts,
+        unit_id,
+        "homework",
+        str(homework_task["id"]),
+    )
+    if homework_done:
+        current_step = "complete"
+    elif not theory_done:
+        current_step = "theory"
+    elif not practice_done:
+        current_step = "practice"
+    else:
+        current_step = "homework"
+    return {
+        "current_step": current_step,
+        "theory_done": theory_done,
+        "practice_done": practice_done,
+        "homework_done": homework_done,
+        "complete": homework_done,
+    }
+
+
+def _step_state(done: bool, current: bool) -> str:
+    if done:
+        return "completed"
+    if current:
+        return "current"
+    return "locked"
+
+
+def get_current_lesson(session_id: str) -> dict[str, object]:
+    units = _lesson_units()
+    attempts = _session_attempts(session_id)
+    theory_completions = _session_theory_completions(session_id)
+    states = [
+        _lesson_unit_state(unit, attempts, theory_completions)
+        for unit in units
+    ]
+    current_index = next(
+        (index for index, unit_state in enumerate(states) if not unit_state["complete"]),
+        None,
+    )
+    completed = sum(bool(unit_state["complete"]) for unit_state in states)
+    if current_index is None:
+        return {
+            "session_id": session_id,
+            "status": "completed",
+            "current_step": "complete",
+            "completed_units": completed,
+            "total_units": len(units),
+            "overall_progress": 100,
+        }
+
+    unit = units[current_index]
+    unit_state = states[current_index]
+    current_step = str(unit_state["current_step"])
+    theory = deepcopy(unit["theory"])
+    practice_task = _public_task(unit["practice_task"])
+    homework_task = _public_task(unit["homework_task"])
+    steps = [
+        {
+            "id": "theory",
+            "label": "Теория",
+            "state": _step_state(bool(unit_state["theory_done"]), current_step == "theory"),
+        },
+        {
+            "id": "practice",
+            "label": "Практика",
+            "state": _step_state(
+                bool(unit_state["practice_done"]),
+                current_step == "practice",
+            ),
+        },
+        {
+            "id": "homework",
+            "label": "Домашнее задание",
+            "state": _step_state(
+                bool(unit_state["homework_done"]),
+                current_step == "homework",
+            ),
+        },
+    ]
+    topic = unit["topic"]
+    return {
+        "session_id": session_id,
+        "status": "active",
+        "unit_id": unit["id"],
+        "position": current_index + 1,
+        "completed_units": completed,
+        "total_units": len(units),
+        "overall_progress": round(completed / len(units) * 100),
+        "current_step": current_step,
+        "steps": steps,
+        "stage": {
+            "id": unit["stage_id"],
+            "number": unit["stage_number"],
+            "title": unit["stage_title"],
+        },
+        "topic": {
+            "id": topic["id"],
+            "title": topic["title"],
+            "short_title": topic["short_title"],
+            "description": topic["description"],
+            "accent": topic["accent"],
+        },
+        "theory": theory,
+        "practice_task": practice_task,
+        "homework_task": homework_task,
+    }
+
+
+def complete_lesson_theory(session_id: str, lesson_unit_id: str) -> dict[str, object]:
+    lesson = get_current_lesson(session_id)
+    if lesson["status"] == "completed":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Roadmap completed")
+    if lesson["unit_id"] != lesson_unit_id or lesson["current_step"] != "theory":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Complete the current roadmap theory step first",
+        )
+    with _lock:
+        _theory_completions.setdefault(session_id, set()).add(lesson_unit_id)
+    return get_current_lesson(session_id)
+
+
+def _validate_lesson_attempt(
+    session_id: str,
+    task_id: str,
+    mode: str,
+    lesson_unit_id: str | None,
+) -> None:
+    if mode == "diagnostic":
+        return
+    if lesson_unit_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="lesson_unit_id is required for a roadmap lesson attempt",
+        )
+    lesson = get_current_lesson(session_id)
+    if lesson["status"] == "completed":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Roadmap completed")
+    if lesson["unit_id"] != lesson_unit_id or lesson["current_step"] != mode:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Follow the roadmap order: theory, practice, then homework",
+        )
+    expected_task = lesson[f"{mode}_task"]
+    if expected_task["id"] != task_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This task is not the current roadmap step",
+        )
+
+
 def get_overview() -> dict[str, object]:
     return {
         "exam": deepcopy(EXAM),
@@ -99,10 +333,17 @@ def submit_attempt(
     task_id: str,
     answer: str,
     duration_seconds: int,
+    mode: str = "diagnostic",
+    lesson_unit_id: str | None = None,
 ) -> dict[str, object]:
     task = _task(task_id)
     if not _published[task_id]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    lesson_task = None
+    if mode != "diagnostic":
+        lesson_before_attempt = get_current_lesson(session_id)
+        lesson_task = lesson_before_attempt.get(f"{mode}_task")
+    _validate_lesson_attempt(session_id, task_id, mode, lesson_unit_id)
     is_correct = _matches(answer, list(task["answer_aliases"]))
     attempt = {
         "id": f"attempt-{datetime.now(UTC).timestamp()}",
@@ -110,6 +351,8 @@ def submit_attempt(
         "answer": answer,
         "is_correct": is_correct,
         "duration_seconds": duration_seconds,
+        "mode": mode,
+        "lesson_unit_id": lesson_unit_id,
         "created_at": datetime.now(UTC).isoformat(),
     }
     with _lock:
@@ -120,15 +363,20 @@ def submit_attempt(
         "is_correct": is_correct,
         "earned_primary_score": int(task["max_primary_score"]) if is_correct else 0,
         "max_primary_score": task["max_primary_score"],
-        "explanation": task["explanation"],
+        "explanation": (
+            lesson_task["explanation"]
+            if isinstance(lesson_task, dict)
+            else task["explanation"]
+        ),
         "correct_answer": task["answer_aliases"][0],
         "theory_id": task["theory_id"],
         "topic": {"id": topic["id"], "title": topic["title"]},
         "recommendation": (
-            "Отлично. Закрепите навык ещё одним заданием этого типа."
+            "Отлично. Переходите к следующему шагу занятия."
             if is_correct
             else "Вернитесь к короткой теории и повторите этот тип через 24 часа."
         ),
+        "lesson": get_current_lesson(session_id) if mode != "diagnostic" else None,
     }
 
 
@@ -290,11 +538,28 @@ def get_roadmap(session_id: str) -> dict[str, object]:
     attempts = _session_attempts(session_id)
     metrics = {str(item["topic_id"]): item for item in _topic_metrics(attempts)}
     attempted_task_ids = {str(item["task_id"]) for item in attempts}
+    theory_completions = _session_theory_completions(session_id)
+    lesson_units = _lesson_units()
+    lesson_states = {
+        str(unit["id"]): _lesson_unit_state(unit, attempts, theory_completions)
+        for unit in lesson_units
+    }
+    current_lesson = get_current_lesson(session_id)
+    current_unit_id = (
+        str(current_lesson["unit_id"])
+        if current_lesson["status"] == "active"
+        else None
+    )
     stages = []
 
     for stage in ROADMAP_STAGES:
         task_numbers = [int(number) for number in stage["task_numbers"]]
         stage_tasks = [task for task in TASKS if int(task["exam_number"]) in task_numbers]
+        stage_units = [unit for unit in lesson_units if unit["stage_id"] == stage["id"]]
+        completed_lessons = sum(
+            bool(lesson_states[str(unit["id"])]["complete"])
+            for unit in stage_units
+        )
         stage_task_ids = {str(task["id"]) for task in stage_tasks}
         stage_attempts = [item for item in attempts if str(item["task_id"]) in stage_task_ids]
         covered = len(stage_task_ids & attempted_task_ids)
@@ -307,9 +572,15 @@ def get_roadmap(session_id: str) -> dict[str, object]:
             {
                 **deepcopy(stage),
                 "mastery": mastery,
-                "state": "completed"
-                if covered == len(stage_tasks) and mastery is not None and mastery >= 75
-                else "upcoming",
+                "state": (
+                    "completed"
+                    if completed_lessons == len(stage_units)
+                    else "current"
+                    if any(str(unit["id"]) == current_unit_id for unit in stage_units)
+                    else "upcoming"
+                ),
+                "completed_lessons": completed_lessons,
+                "lesson_units": len(stage_units),
                 "covered_task_types": covered,
                 "task_types": len(stage_tasks),
                 "tasks": [
@@ -318,12 +589,13 @@ def get_roadmap(session_id: str) -> dict[str, object]:
                         "exam_number": task["exam_number"],
                         "title": task["title"],
                         "difficulty": task["difficulty"],
-                        "href": f"#practice-{task['id']}",
+                        "href": "#lessons",
                     }
                     for task in stage_tasks
                 ],
                 "topics": [
                     {
+                        "unit_id": unit["id"],
                         "id": topic_id,
                         "title": metrics[topic_id]["short_title"],
                         "mastery": metrics[topic_id]["mastery"],
@@ -334,31 +606,49 @@ def get_roadmap(session_id: str) -> dict[str, object]:
                             if task["topic_id"] == topic_id
                         ],
                         "theory_id": metrics[topic_id]["theory_id"],
-                        "theory_href": metrics[topic_id]["theory_href"],
-                        "practice_href": next(
-                            f"#practice-{task['id']}"
-                            for task in stage_tasks
-                            if task["topic_id"] == topic_id
+                        "current_step": lesson_states[str(unit["id"])]["current_step"],
+                        "lesson_state": (
+                            "completed"
+                            if lesson_states[str(unit["id"])]["complete"]
+                            else "current"
+                            if str(unit["id"]) == current_unit_id
+                            else "locked"
                         ),
+                        "lesson_href": "#lessons",
                     }
                     for topic_id in stage["topic_ids"]
+                    if (
+                        unit := next(
+                            (
+                                item
+                                for item in stage_units
+                                if item["topic"]["id"] == topic_id
+                            ),
+                            None,
+                        )
+                    )
                 ],
             }
         )
 
-    current_index = next(
-        (index for index, stage in enumerate(stages) if stage["state"] != "completed"),
-        len(stages) - 1,
+    current_stage_id = (
+        str(current_lesson["stage"]["id"])
+        if current_lesson["status"] == "active"
+        else str(stages[-1]["id"])
     )
-    if stages[current_index]["state"] != "completed":
-        stages[current_index]["state"] = "current"
     return {
         "session_id": session_id,
-        "principle": "Все темы и номера ЕГЭ распределены от коротких задач к сложным №14, 17–19.",
-        "current_stage_id": stages[current_index]["id"],
-        "overall_progress": round(len(attempted_task_ids) / len(TASKS) * 100),
+        "principle": (
+            "Ученик идёт по темам roadmap без перескоков: теория, затем практика и ДЗ."
+        ),
+        "current_stage_id": current_stage_id,
+        "current_unit_id": current_unit_id,
+        "overall_progress": current_lesson["overall_progress"],
+        "completed_lesson_units": current_lesson["completed_units"],
+        "total_lesson_units": current_lesson["total_units"],
         "covered_task_types": len(attempted_task_ids),
         "total_task_types": len(TASKS),
+        "current_lesson": current_lesson,
         "stages": stages,
     }
 
@@ -440,5 +730,6 @@ def reset_demo_state() -> None:
     """Reset mutable prototype state for deterministic tests."""
     with _lock:
         _attempts.clear()
+        _theory_completions.clear()
         _published.clear()
         _published.update({str(task["id"]): True for task in TASKS})

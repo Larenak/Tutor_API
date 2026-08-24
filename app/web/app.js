@@ -1,5 +1,5 @@
 const API = "/api/v1/exam/math-profile";
-const sessionId = "local-student";
+const sessionId = new URLSearchParams(window.location.search).get("session_id") || "local-student";
 
 const state = {
   role: "student",
@@ -9,6 +9,7 @@ const state = {
   theory: [],
   analytics: null,
   roadmap: null,
+  lesson: null,
   admin: null,
   adminUsers: [],
   adminTasks: [],
@@ -31,14 +32,15 @@ async function request(path, options = {}) {
 }
 
 async function loadData() {
-  const [overview, tasks, theory, analytics, roadmap, admin, adminUsers, adminTasks] =
+  const [overview, tasks, theory, analytics, roadmap, lesson, admin, adminUsers, adminTasks] =
     await Promise.all([
       request("/overview"), request("/tasks"), request("/theory"),
       request(`/analytics?session_id=${sessionId}`),
-      request(`/roadmap?session_id=${sessionId}`), request("/admin/dashboard"),
+      request(`/roadmap?session_id=${sessionId}`),
+      request(`/lesson/current?session_id=${sessionId}`), request("/admin/dashboard"),
       request("/admin/users"), request("/admin/tasks"),
     ]);
-  Object.assign(state, { overview, tasks, theory, analytics, roadmap, admin, adminUsers, adminTasks });
+  Object.assign(state, { overview, tasks, theory, analytics, roadmap, lesson, admin, adminUsers, adminTasks });
 }
 
 function escapeHtml(value) {
@@ -82,12 +84,13 @@ function pageHeader(eyebrow, title, description, action = "") {
 function topicCard(topic) {
   const metric = state.analytics.topics.find((item) => item.topic_id === topic.id);
   const symbols = { geometry: "△", vectors: "→", probability: "P", equations: "x", functions: "f", calculus: "∫", applied: "%", number_theory: "№" };
-  const firstTask = state.tasks.find((task) => task.topic_id === topic.id);
+  const lessonTopic = state.roadmap.stages.flatMap((stage) => stage.topics).find((item) => item.id === topic.id);
+  const lessonLabel = lessonTopic?.lesson_state === "completed" ? "Тема пройдена" : lessonTopic?.lesson_state === "current" ? "Продолжить занятие" : "Откроется по маршруту";
   return `<article class="topic-card" style="--topic-color:${topic.accent}">
     <div class="topic-top"><span class="topic-icon">${symbols[topic.id]}</span><span class="topic-score">${percent(metric.mastery)}</span></div>
     <h3>${topic.short_title}</h3><p>${topic.description}</p>
     <div class="mini-track"><i style="width:${metric.mastery ?? 0}%"></i></div>
-    <div class="content-links"><a href="#theory-${metric.theory_id}" data-open-theory="${metric.theory_id}">Теория</a><a href="#practice-${firstTask.id}" data-open-task="${firstTask.id}">Практика №${firstTask.exam_number}</a></div>
+    <div class="content-links"><a href="#lessons" data-roadmap-topic="${topic.id}">${lessonLabel}</a></div>
   </article>`;
 }
 
@@ -116,16 +119,18 @@ function renderDashboard() {
   const analytics = state.analytics;
   const prediction = analytics.prediction;
   const hasAttempts = analytics.summary.attempts > 0;
+  const lesson = state.lesson;
+  const roadmapDone = lesson.status === "completed";
   const next = analytics.individual_plan;
   const maxDay = Math.max(1, ...analytics.week_activity.map((item) => item.attempts));
   view.innerHTML = `
     <div class="hero-grid">
       <section class="hero-card">
         <div class="hero-copy">
-          <p class="eyebrow">Ваши реальные результаты</p>
-          <h1>${hasAttempts ? "Продолжим подготовку." : "Начните диагностику."}</h1>
-          <p>${hasAttempts ? `Учтено ${analytics.summary.attempts} решений. Все показатели ниже рассчитаны только по вашим ответам.` : "Решите первое задание — до этого момента аналитика и прогноз останутся пустыми."}</p>
-          <div class="hero-actions"><button class="primary-button" data-go="practice">${hasAttempts ? "Продолжить практику" : "Решить первое задание"} →</button></div>
+          <p class="eyebrow">Личный кабинет</p>
+          <h1>${roadmapDone ? "Маршрут пройден." : "Ваш план подготовки к ЕГЭ."}</h1>
+          <p>${roadmapDone ? "Все темы и обязательные шаги завершены." : `Следующий шаг: ${lesson.topic.short_title} · ${lesson.steps.find((step) => step.state === "current").label}. Пройдено ${lesson.completed_units} из ${lesson.total_units} тем.`}</p>
+          <div class="hero-actions"><button class="primary-button" data-go="lessons">${roadmapDone ? "Посмотреть результат" : `Продолжить: ${lesson.steps.find((step) => step.state === "current").label.toLowerCase()}`} →</button><small>Занятие ${lesson.position} из ${lesson.total_units}</small></div>
         </div>
         <div class="hero-visual" aria-hidden="true">
           <div class="formula-orbit"></div><span class="formula f1">P(A)</span>
@@ -145,7 +150,7 @@ function renderDashboard() {
         <div class="section-heading"><div><h2>Ближайший план</h2><p>Только темы, где уже были ошибки</p></div><button class="text-button" data-go="roadmap">Маршрут →</button></div>
         <div class="next-list">${next.length ? next.map((item) => `<article class="next-item">
           <span class="next-date">${formatDate(item.due_date)}</span>
-          <span><b>${item.title}</b><small>${item.action}</small><span class="content-links"><a href="${item.theory_href}" data-open-theory="${item.theory_id}">Теория</a><a href="${item.practice_href}" data-open-task="${item.task_id}">Практика</a></span></span><em>${percent(item.mastery)}</em>
+          <span><b>${item.title}</b><small>${item.action}</small><span class="content-links"><a href="#lessons" data-roadmap-topic="${item.topic_id}">Открыть по roadmap</a></span></span><em>${percent(item.mastery)}</em>
         </article>`).join("") : `<div class="empty-state compact">${hasAttempts ? "По текущим ответам тем с ошибками нет." : "План повторения появится после первой ошибки."}</div>`}</div>
       </div>
       <div class="panel">
@@ -160,20 +165,138 @@ function renderDashboard() {
 
 function renderRoadmap() {
   const roadmap = state.roadmap;
+  const stepLabels = { theory: "Теория", practice: "Практика", homework: "ДЗ", complete: "Пройдено" };
   view.innerHTML = `${pageHeader("Персональный маршрут", "Темы и задания ЕГЭ", roadmap.principle,
-    '<button class="primary-button" data-go="practice">Перейти к практике →</button>')}
-    <section class="roadmap-summary"><div><h2>Покрытие программы</h2><p>Прогресс означает число типов заданий, по которым есть хотя бы одна реальная попытка.</p></div>
-      <div class="roadmap-progress-big">${roadmap.covered_task_types}<small>из ${roadmap.total_task_types} типов</small></div></section>
+    '<button class="primary-button" data-go="lessons">Текущее занятие →</button>')}
+    <section class="roadmap-summary"><div><h2>Прогресс по занятиям</h2><p>Тема засчитывается только после последовательного прохождения теории, практики и домашнего задания.</p></div>
+      <div class="roadmap-progress-big">${roadmap.completed_lesson_units}<small>из ${roadmap.total_lesson_units} тем</small></div></section>
     <div class="roadmap-list">${roadmap.stages.map((stage) => `<article class="stage-card ${stage.state}">
       <span class="stage-number">${stage.state === "completed" ? "✓" : stage.number}</span>
       <div class="stage-main"><h3>${stage.title}</h3><p>${stage.subtitle} · ${stage.weeks}</p>
-        <div class="roadmap-topics">${stage.topics.map((topic) => `<div class="roadmap-topic"><span><b>${topic.title}</b><small>Задания ${topic.task_numbers.map((number) => `№${number}`).join(", ")} · результат ${percent(topic.mastery)}</small></span><span class="content-links"><a href="${topic.theory_href}" data-open-theory="${topic.theory_id}">Теория</a><a href="${topic.practice_href}" data-open-task="${stage.tasks.find((task) => topic.task_numbers.includes(task.exam_number)).id}">Практика</a></span></div>`).join("")}</div>
-        <div class="task-link-row">${stage.tasks.map((task) => `<a href="${task.href}" data-open-task="${task.id}" class="task-link ${task.difficulty === "expert" ? "complex" : ""}">№${task.exam_number} · ${task.title}</a>`).join("")}</div>
+        <div class="roadmap-topics">${stage.topics.map((topic) => `<div class="roadmap-topic ${topic.lesson_state}"><span><b>${topic.title}</b><small>Задания ${topic.task_numbers.map((number) => `№${number}`).join(", ")} · ${topic.lesson_state === "locked" ? "откроется после предыдущей темы" : stepLabels[topic.current_step]}</small></span><span class="lesson-state-badge ${topic.lesson_state}">${topic.lesson_state === "completed" ? "✓ Пройдено" : topic.lesson_state === "current" ? `Сейчас: ${stepLabels[topic.current_step]}` : "🔒 Закрыто"}</span>${topic.lesson_state === "current" ? '<button class="text-button" data-go="lessons">Открыть →</button>' : ""}</div>`).join("")}</div>
+        <div class="task-link-row">${stage.tasks.map((task) => `<span class="task-link ${task.difficulty === "expert" ? "complex" : ""}">№${task.exam_number} · ${task.title}</span>`).join("")}</div>
       </div>
-      <div class="stage-meta"><b>${stage.covered_task_types}/${stage.task_types}</b><small>${stage.state === "current" ? "текущий этап" : stage.state === "completed" ? "пройден" : "впереди"}</small></div>
+      <div class="stage-meta"><b>${stage.completed_lessons}/${stage.lesson_units}</b><small>${stage.state === "current" ? "текущий этап" : stage.state === "completed" ? "пройден" : "впереди"}</small></div>
     </article>`).join("")}</div>`;
   bindGoButtons();
-  bindContentLinks();
+}
+
+function lessonStepTitle(step) {
+  return { theory: "Теория", practice: "Практика", homework: "Домашнее задание" }[step] || "Завершено";
+}
+
+function renderLessons() {
+  const lesson = state.lesson;
+  if (lesson.status === "completed") {
+    view.innerHTML = `${pageHeader("Занятия по roadmap", "Маршрут завершён", "Все темы пройдены в порядке: теория, практика, домашнее задание.")}
+      <section class="lesson-complete"><span>✓</span><h2>Отличная работа</h2><p>Вы завершили ${lesson.total_units} тем и дошли до конца учебного маршрута.</p><button class="secondary-button" data-go="roadmap">Посмотреть roadmap</button></section>`;
+    bindGoButtons();
+    return;
+  }
+
+  const currentStep = lesson.current_step;
+  const isTheory = currentStep === "theory";
+  const task = currentStep === "homework" ? lesson.homework_task : lesson.practice_task;
+  const stepContent = isTheory ? `<article class="lesson-panel lesson-theory">
+      <p class="eyebrow">${lesson.theory.eyebrow}</p>
+      <h2>${lesson.theory.title}</h2>
+      <p class="lesson-summary">${lesson.theory.summary}</p>
+      <ul class="formula-list">${lesson.theory.key_points.map((point) => `<li>${point}</li>`).join("")}</ul>
+      <aside class="theory-tip"><b>Совет перед практикой</b>${lesson.theory.tip}</aside>
+      <div class="lesson-action"><span>${lesson.theory.read_minutes} минут на изучение</span><button class="primary-button" id="complete-theory">Теория изучена →</button></div>
+    </article>` : `<article class="lesson-panel lesson-task ${currentStep === "homework" ? "homework" : ""}">
+      ${currentStep === "homework" ? '<div class="homework-banner"><b>Домашнее задание</b><span>Закрепите теорию самостоятельно. Следующая тема откроется после верного ответа.</span></div>' : '<div class="practice-banner"><b>Практика по теории</b><span>Примените только что изученные правила.</span></div>'}
+      <div class="task-meta"><span class="tag accent">Задание ${task.exam_number}</span><span class="tag">${difficultyLabel(task.difficulty)}</span><span class="tag">Код ${task.codifier_code}</span></div>
+      <h2>${task.title}</h2><p class="task-prompt">${task.prompt}</p>
+      <form class="answer-block" id="lesson-answer-form"><label for="lesson-answer">Ваш ответ</label><div class="answer-row">
+        <input id="lesson-answer" name="answer" autocomplete="off" placeholder="Введите ответ" required>
+        <button class="primary-button" type="submit">Проверить</button></div></form>
+      <div id="feedback-slot"></div>
+      <p class="task-source">${task.source.label} · формулировка адаптирована для учебного прототипа</p>
+    </article>`;
+
+  view.innerHTML = `${pageHeader("Занятия по roadmap", lesson.topic.short_title, `${lesson.stage.number}-й этап · ${lesson.stage.title}`,
+    '<button class="secondary-button" data-go="roadmap">Посмотреть маршрут</button>')}
+    <section class="lesson-shell">
+      <div class="lesson-context"><span>Тема ${lesson.position} из ${lesson.total_units}</span><b>${lesson.topic.title}</b><small>${lesson.topic.description}</small></div>
+      <div class="lesson-progress"><i style="width:${lesson.overall_progress}%"></i></div>
+      <ol class="lesson-stepper">${lesson.steps.map((step, index) => `<li class="lesson-step ${step.state}"><span>${step.state === "completed" ? "✓" : index + 1}</span><div><b>${step.label}</b><small>${step.state === "current" ? "Текущий шаг" : step.state === "completed" ? "Готово" : "Сначала предыдущий шаг"}</small></div></li>`).join("")}</ol>
+      <div class="lesson-current-label"><span>Сейчас</span><b>${lessonStepTitle(currentStep)}</b></div>
+      ${stepContent}
+    </section>`;
+  bindGoButtons();
+  if (isTheory) document.querySelector("#complete-theory").addEventListener("click", completeCurrentTheory);
+  else document.querySelector("#lesson-answer-form").addEventListener("submit", submitLessonAnswer);
+}
+
+async function refreshLearningData() {
+  const [analytics, roadmap, admin, adminUsers] = await Promise.all([
+    request(`/analytics?session_id=${sessionId}`), request(`/roadmap?session_id=${sessionId}`),
+    request("/admin/dashboard"), request("/admin/users"),
+  ]);
+  Object.assign(state, { analytics, roadmap, admin, adminUsers });
+}
+
+async function completeCurrentTheory() {
+  const button = document.querySelector("#complete-theory");
+  button.disabled = true;
+  button.textContent = "Сохраняем…";
+  try {
+    state.lesson = await request("/lesson/theory/complete", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId, lesson_unit_id: state.lesson.unit_id }),
+    });
+    state.roadmap = await request(`/roadmap?session_id=${sessionId}`);
+    renderLessons();
+    toast("Теория пройдена. Открыта практика.");
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Теория изучена →";
+    toast(error.message);
+  }
+}
+
+async function submitLessonAnswer(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
+  const answer = new FormData(form).get("answer");
+  const mode = state.lesson.current_step;
+  const task = mode === "homework" ? state.lesson.homework_task : state.lesson.practice_task;
+  button.disabled = true;
+  button.textContent = "Проверяем…";
+  try {
+    const result = await request("/attempts", {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: sessionId,
+        task_id: task.id,
+        answer,
+        duration_seconds: 90,
+        mode,
+        lesson_unit_id: state.lesson.unit_id,
+      }),
+    });
+    state.lesson = result.lesson;
+    await refreshLearningData();
+    const nextLabel = mode === "practice" ? "Перейти к ДЗ" : state.lesson.status === "completed" ? "Посмотреть результат" : "Следующая тема";
+    document.querySelector("#feedback-slot").innerHTML = `<div class="feedback ${result.is_correct ? "correct" : "incorrect"}">
+      <b>${result.is_correct ? "Верно — шаг завершён" : `Пока не так. Верный ответ: ${result.correct_answer}`}</b>
+      ${result.explanation}<br><span style="opacity:.78">${result.recommendation}</span>
+      ${result.is_correct ? `<div class="feedback-action"><button class="primary-button" id="lesson-next">${nextLabel} →</button></div>` : ""}
+    </div>`;
+    if (result.is_correct) {
+      form.classList.add("hidden");
+      document.querySelector("#lesson-next").addEventListener("click", renderLessons);
+    }
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    if (!form.classList.contains("hidden")) {
+      button.disabled = false;
+      button.textContent = "Проверить";
+    }
+  }
 }
 
 function filteredTasks() {
@@ -354,15 +477,12 @@ function bindGoButtons() {
 }
 
 function bindContentLinks() {
-  document.querySelectorAll("[data-open-task]").forEach((link) => link.addEventListener("click", (event) => {
+  document.querySelectorAll("[data-open-task], [data-open-theory], [data-roadmap-topic]").forEach((link) => link.addEventListener("click", (event) => {
     event.preventDefault();
-    window.location.hash = `practice-${link.dataset.openTask}`;
-    openPracticeTask(link.dataset.openTask);
-  }));
-  document.querySelectorAll("[data-open-theory]").forEach((link) => link.addEventListener("click", (event) => {
-    event.preventDefault();
-    window.location.hash = `theory-${link.dataset.openTheory}`;
-    openTheory(link.dataset.openTheory);
+    const requestedTopic = link.dataset.roadmapTopic;
+    const currentTopic = state.lesson.status === "active" ? state.lesson.topic.id : null;
+    goTo(requestedTopic && requestedTopic !== currentTopic ? "roadmap" : "lessons");
+    if (requestedTopic && requestedTopic !== currentTopic) toast("Эта тема откроется по порядку roadmap.");
   }));
 }
 
@@ -386,18 +506,20 @@ function setActiveNav() {
 }
 
 function goTo(page) {
+  if (page === "practice" || page === "theory") page = "lessons";
   state.page = page;
+  window.location.hash = page === "dashboard" ? "" : page;
   setActiveNav();
   sidebar.classList.remove("open");
   render();
   view.focus({ preventScroll: true });
-  if (!window.location.hash.startsWith("#theory-") && !window.location.hash.startsWith("#practice-")) window.scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function render() {
   const pages = {
-    dashboard: renderDashboard, roadmap: renderRoadmap, practice: renderPractice,
-    theory: renderTheory, analytics: renderAnalytics, admin: renderAdmin,
+    dashboard: renderDashboard, roadmap: renderRoadmap, lessons: renderLessons,
+    analytics: renderAnalytics, admin: renderAdmin,
   };
   (pages[state.page] || renderDashboard)();
 }
@@ -419,8 +541,8 @@ document.querySelector("#mobile-menu").addEventListener("click", () => sidebar.c
 
 loadData().then(() => {
   const hash = window.location.hash.slice(1);
-  if (hash.startsWith("practice-")) openPracticeTask(hash.slice("practice-".length));
-  else if (hash.startsWith("theory-")) openTheory(hash.slice("theory-".length));
+  if (["roadmap", "lessons", "analytics", "admin"].includes(hash)) goTo(hash);
+  else if (hash.startsWith("practice-") || hash.startsWith("theory-")) goTo("lessons");
   else render();
 }).catch((error) => {
   view.innerHTML = `<div class="error-card"><h2>Сайт запущен, но API не ответил</h2><p>${escapeHtml(error.message)}</p><button class="secondary-button" onclick="location.reload()">Повторить</button></div>`;

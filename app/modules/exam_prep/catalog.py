@@ -538,9 +538,9 @@ ROADMAP_STAGES: Final = [
     {
         "id": "short-geometry",
         "number": 1,
-        "title": "Геометрическая база",
-        "subtitle": "Планиметрия, векторы и стереометрия",
-        "topic_ids": ["geometry", "vectors"],
+        "title": "Векторы и геометрическая база",
+        "subtitle": "Сначала векторы, затем планиметрия и стереометрия",
+        "topic_ids": ["vectors", "geometry"],
         "task_numbers": [1, 2, 3],
         "difficulty": "basic",
         "weeks": "1–2 недели",

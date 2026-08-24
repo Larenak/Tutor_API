@@ -3,11 +3,13 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 
 from app.api.responses import SuccessResponse, success
-from app.modules.exam_prep.schemas import AttemptCreate, TaskStatusUpdate
+from app.modules.exam_prep.schemas import AttemptCreate, TaskStatusUpdate, TheoryCompletionCreate
 from app.modules.exam_prep.service import (
+    complete_lesson_theory,
     get_admin_dashboard,
     get_admin_users,
     get_analytics,
+    get_current_lesson,
     get_overview,
     get_roadmap,
     list_tasks,
@@ -45,8 +47,27 @@ async def create_attempt(payload: AttemptCreate) -> SuccessResponse[dict[str, ob
             task_id=payload.task_id,
             answer=payload.answer,
             duration_seconds=payload.duration_seconds,
+            mode=payload.mode,
+            lesson_unit_id=payload.lesson_unit_id,
         )
     )
+
+
+@router.get("/lesson/current", response_model=SuccessResponse[dict[str, object]])
+async def current_lesson(
+    session_id: Annotated[str, Query(min_length=1, max_length=80)] = "local-student",
+) -> SuccessResponse[dict[str, object]]:
+    return success(get_current_lesson(session_id))
+
+
+@router.post(
+    "/lesson/theory/complete",
+    response_model=SuccessResponse[dict[str, object]],
+)
+async def complete_theory(
+    payload: TheoryCompletionCreate,
+) -> SuccessResponse[dict[str, object]]:
+    return success(complete_lesson_theory(payload.session_id, payload.lesson_unit_id))
 
 
 @router.get("/analytics", response_model=SuccessResponse[dict[str, object]])

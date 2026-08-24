@@ -10,6 +10,7 @@ class AttemptCreate(BaseModel):
     duration_seconds: int = Field(default=0, ge=0, le=14_400)
     mode: Literal["diagnostic", "practice", "homework"] = "diagnostic"
     lesson_unit_id: str | None = Field(default=None, min_length=1, max_length=100)
+    lesson_task_key: str | None = Field(default=None, min_length=1, max_length=140)
 
 
 class TheoryCompletionCreate(BaseModel):

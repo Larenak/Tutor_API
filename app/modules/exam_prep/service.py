@@ -12,14 +12,407 @@ _lock = Lock()
 _attempts: dict[str, list[dict[str, object]]] = {}
 _theory_completions: dict[str, set[str]] = {}
 _published: dict[str, bool] = {str(task["id"]): True for task in TASKS}
-_HOMEWORK_TASK_OVERRIDES: dict[str, dict[str, object]] = {
-    "short-geometry:vectors": {
-        "prompt": (
-            "Самостоятельная работа. Даны векторы a = (2; −3) и b = (2; 3). "
-            "Найдите их скалярное произведение."
-        ),
-        "explanation": "a · b = 2 · 2 + (−3) · 3 = −5.",
+
+# Official EGE-2026 profile mathematics scale: primary score (tuple index)
+# to test/secondary score. The conversion is intentionally table-based because
+# the official scale is nonlinear.
+_PROFILE_MATH_TEST_SCORES = (
+    0,
+    6,
+    11,
+    17,
+    22,
+    27,
+    34,
+    40,
+    46,
+    52,
+    58,
+    64,
+    70,
+    72,
+    74,
+    76,
+    78,
+    80,
+    82,
+    84,
+    86,
+    88,
+    90,
+    92,
+    94,
+    95,
+    96,
+    97,
+    98,
+    99,
+    100,
+    100,
+    100,
+)
+_TEST_SCORE_SCALE_SOURCE = (
+    "https://obrnadzor.gov.ru/wp-content/uploads/2026/04/"
+    "tabliczy-sootvetstviya-pervichnyh-i-testovyh-ballov-ege.pdf"
+)
+
+
+def _sdamgia_source(problem_id: str) -> dict[str, object]:
+    return {
+        "label": f"СдамГИА · задание №{problem_id}",
+        "url": f"https://math-ege.sdamgia.ru/problem?id={problem_id}",
+        "source_id": problem_id,
+        "attribution": "СдамГИА («РЕШУ ЕГЭ»)",
+        "adapted": True,
+        "verbatim": False,
     }
+
+
+_HOMEWORK_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
+    "short-geometry:vectors": [
+        {
+            "prompt": "Дан вектор a = (7; 24). Найдите длину вектора a.",
+            "answer_aliases": ["25", "25.0", "25,0"],
+            "explanation": "|a| = √(7² + 24²) = √625 = 25.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27663"),
+        },
+        {
+            "prompt": "Дан вектор b = (−9; 12). Найдите квадрат длины вектора b.",
+            "answer_aliases": ["225", "225.0", "225,0"],
+            "explanation": "|b|² = (−9)² + 12² = 81 + 144 = 225.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27664"),
+        },
+        {
+            "prompt": (
+                "Вектор AB начинается в точке A(−4; −1) и заканчивается в точке "
+                "B(2; 7). Найдите сумму координат вектора AB."
+            ),
+            "answer_aliases": ["14", "14.0", "14,0"],
+            "explanation": "AB = (6; 8), поэтому сумма координат равна 14.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27723"),
+        },
+        {
+            "prompt": (
+                "Вектор AB начинается в точке A(5; −6) и имеет координаты (−8; 10). "
+                "Найдите сумму координат точки B."
+            ),
+            "answer_aliases": ["1", "1.0", "1,0"],
+            "explanation": "B = (5 − 8; −6 + 10) = (−3; 4), сумма координат равна 1.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27726"),
+        },
+        {
+            "prompt": (
+                "Вектор AB заканчивается в точке B(11; 3) и имеет координаты (7; −5). "
+                "Найдите сумму координат точки A."
+            ),
+            "answer_aliases": ["12", "12.0", "12,0"],
+            "explanation": "A = (11 − 7; 3 − (−5)) = (4; 8), сумма координат равна 12.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27729"),
+        },
+        {
+            "prompt": (
+                "Даны векторы a = (4; 7) и b = (−1; 3). "
+                "Найдите сумму координат вектора a + b."
+            ),
+            "answer_aliases": ["13", "13.0", "13,0"],
+            "explanation": "a + b = (3; 10), сумма координат равна 13.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27730"),
+        },
+        {
+            "prompt": (
+                "Даны векторы a = (9; 2) и b = (3; −4). "
+                "Найдите сумму координат вектора a − b."
+            ),
+            "answer_aliases": ["12", "12.0", "12,0"],
+            "explanation": "a − b = (6; 6), сумма координат равна 12.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27732"),
+        },
+        {
+            "prompt": (
+                "Даны векторы a = (4; −1) и b = (2; 3). "
+                "Найдите сумму координат вектора 2a + b."
+            ),
+            "answer_aliases": ["11", "11.0", "11,0"],
+            "explanation": "2a + b = (8; −2) + (2; 3) = (10; 1), сумма равна 11.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("27736"),
+        },
+        {
+            "prompt": (
+                "Даны векторы a = (7; 5) и b = (3; 1). "
+                "Найдите квадрат длины вектора a − 2b."
+            ),
+            "answer_aliases": ["10", "10.0", "10,0"],
+            "explanation": "a − 2b = (1; 3), поэтому |a − 2b|² = 1 + 9 = 10.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("27737"),
+        },
+        {
+            "prompt": (
+                "Даны векторы a = (−3; 6) и b = (5; 2). "
+                "Найдите скалярное произведение a · b."
+            ),
+            "answer_aliases": ["-3", "−3", "-3.0", "-3,0"],
+            "explanation": "a · b = (−3) · 5 + 6 · 2 = −15 + 12 = −3.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27734"),
+        },
+        {
+            "prompt": (
+                "Даны векторы a = (2; 7) и b = (7; −2). "
+                "Найдите угол между векторами в градусах."
+            ),
+            "answer_aliases": ["90", "90.0", "90,0"],
+            "explanation": "a · b = 14 − 14 = 0, поэтому угол между векторами равен 90°.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("27741"),
+        },
+        {
+            "prompt": (
+                "Длины векторов a и b равны 6 и 8, угол между ними равен 60°. "
+                "Найдите скалярное произведение a · b."
+            ),
+            "answer_aliases": ["24", "24.0", "24,0"],
+            "explanation": "a · b = 6 · 8 · cos 60° = 48 · 1/2 = 24.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("649909"),
+        },
+        {
+            "prompt": (
+                "Длины векторов a и b равны 10 и 4, угол между ними равен 120°. "
+                "Найдите скалярное произведение a · b."
+            ),
+            "answer_aliases": ["-20", "−20", "-20.0", "-20,0"],
+            "explanation": "a · b = 10 · 4 · cos 120° = 40 · (−1/2) = −20.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("670261"),
+        },
+        {
+            "prompt": (
+                "Даны векторы a = (6; 8) и b = (8; 6). "
+                "Найдите косинус угла между ними."
+            ),
+            "answer_aliases": ["0.96", "0,96", "24/25"],
+            "explanation": "a · b = 96, |a| = |b| = 10, поэтому cos α = 96 / 100 = 0,96.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("649915"),
+        },
+        {
+            "prompt": (
+                "Длина вектора a равна 8, угол между a и b равен 60°, а их "
+                "скалярное произведение равно 28. Найдите длину вектора b."
+            ),
+            "answer_aliases": ["7", "7.0", "7,0"],
+            "explanation": "28 = 8 · |b| · cos 60° = 4|b|, поэтому |b| = 7.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("649918"),
+        },
+    ]
+}
+_PRACTICE_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
+    "short-geometry:vectors": [
+        {
+            "prompt": "Дан вектор a = (8; 15). Найдите длину вектора a.",
+            "answer_aliases": ["17", "17.0", "17,0"],
+            "explanation": "|a| = √(8² + 15²) = √289 = 17.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27663"),
+        },
+        {
+            "prompt": "Дан вектор b = (−7; 24). Найдите квадрат длины вектора b.",
+            "answer_aliases": ["625", "625.0", "625,0"],
+            "explanation": "|b|² = (−7)² + 24² = 49 + 576 = 625.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27664"),
+        },
+        {
+            "prompt": (
+                "Начало вектора AB находится в точке A(−1; 2), а конец — в точке "
+                "B(5; 10). Найдите длину вектора AB."
+            ),
+            "answer_aliases": ["10", "10.0", "10,0"],
+            "explanation": "AB = (5 − (−1); 10 − 2) = (6; 8), поэтому |AB| = 10.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("27723"),
+        },
+        {
+            "prompt": (
+                "Начало вектора AB — точка A(4; −3), конец — точка B(−2; 5). "
+                "Найдите сумму координат вектора AB."
+            ),
+            "answer_aliases": ["2", "2.0", "2,0"],
+            "explanation": "AB = (−2 − 4; 5 − (−3)) = (−6; 8), сумма равна 2.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27724"),
+        },
+        {
+            "prompt": (
+                "Вектор AB начинается в точке A(−3; 7) и имеет координаты (11; −4). "
+                "Найдите абсциссу точки B."
+            ),
+            "answer_aliases": ["8", "8.0", "8,0"],
+            "explanation": "xB = xA + 11 = −3 + 11 = 8.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27725"),
+        },
+        {
+            "prompt": (
+                "Вектор AB начинается в точке A(6; −5) и имеет координаты (−2; 13). "
+                "Найдите ординату точки B."
+            ),
+            "answer_aliases": ["8", "8.0", "8,0"],
+            "explanation": "yB = yA + 13 = −5 + 13 = 8.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27727"),
+        },
+        {
+            "prompt": (
+                "Вектор AB заканчивается в точке B(9; −1) и имеет координаты (5; 6). "
+                "Найдите абсциссу точки A."
+            ),
+            "answer_aliases": ["4", "4.0", "4,0"],
+            "explanation": "xA = xB − 5 = 9 − 5 = 4.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27728"),
+        },
+        {
+            "prompt": (
+                "Вектор AB заканчивается в точке B(−4; 10) и имеет координаты (−7; 3). "
+                "Найдите ординату точки A."
+            ),
+            "answer_aliases": ["7", "7.0", "7,0"],
+            "explanation": "yA = yB − 3 = 10 − 3 = 7.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27729"),
+        },
+        {
+            "prompt": (
+                "Даны векторы a = (−4; 9) и b = (7; −2). "
+                "Найдите сумму координат вектора a + b."
+            ),
+            "answer_aliases": ["10", "10.0", "10,0"],
+            "explanation": "a + b = (3; 7), сумма координат равна 10.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27730"),
+        },
+        {
+            "prompt": (
+                "Даны векторы a = (5; −1) и b = (−2; 5). "
+                "Найдите квадрат длины вектора a + b."
+            ),
+            "answer_aliases": ["25", "25.0", "25,0"],
+            "explanation": "a + b = (3; 4), поэтому |a + b|² = 3² + 4² = 25.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("27731"),
+        },
+        {
+            "prompt": (
+                "Даны векторы a = (8; 3) и b = (−5; 7). "
+                "Найдите сумму координат вектора a − b."
+            ),
+            "answer_aliases": ["9", "9.0", "9,0"],
+            "explanation": "a − b = (13; −4), сумма координат равна 9.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27732"),
+        },
+        {
+            "prompt": (
+                "Даны векторы a = (3; 2) и b = (1; −4). "
+                "Найдите квадрат длины вектора 2a − b."
+            ),
+            "answer_aliases": ["89", "89.0", "89,0"],
+            "explanation": "2a − b = (6; 4) − (1; −4) = (5; 8), квадрат длины равен 89.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("27733"),
+        },
+        {
+            "prompt": (
+                "Даны векторы a = (−2; 5) и b = (4; 3). "
+                "Найдите скалярное произведение векторов a и b."
+            ),
+            "answer_aliases": ["7", "7.0", "7,0"],
+            "explanation": "a · b = (−2) · 4 + 5 · 3 = −8 + 15 = 7.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27734"),
+        },
+        {
+            "prompt": (
+                "Даны векторы a = (1; −2), b = (5; 1) и c = (2; 4). "
+                "Найдите скалярное произведение (a + b) · c."
+            ),
+            "answer_aliases": ["8", "8.0", "8,0"],
+            "explanation": "a + b = (6; −1), поэтому (a + b) · c = 6 · 2 − 1 · 4 = 8.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("27740"),
+        },
+        {
+            "prompt": (
+                "Векторы a = (x; 4) и b = (2; −3) перпендикулярны. "
+                "Найдите x."
+            ),
+            "answer_aliases": ["6", "6.0", "6,0"],
+            "explanation": "Для перпендикулярных векторов a · b = 0: 2x − 12 = 0, откуда x = 6.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("27735"),
+        },
+        {
+            "prompt": (
+                "Даны векторы a = (3; 4) и b = (4; −3). "
+                "Найдите угол между векторами a и b в градусах."
+            ),
+            "answer_aliases": ["90", "90.0", "90,0"],
+            "explanation": "a · b = 12 − 12 = 0, поэтому векторы перпендикулярны и угол равен 90°.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("27741"),
+        },
+        {
+            "prompt": (
+                "Даны векторы a = (6; 7) и b = (1; 2). "
+                "Найдите длину вектора a − 2b."
+            ),
+            "answer_aliases": ["5", "5.0", "5,0"],
+            "explanation": "a − 2b = (6; 7) − (2; 4) = (4; 3), поэтому длина равна 5.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("644850"),
+        },
+        {
+            "prompt": (
+                "Длины векторов a и b равны 4 и 6, угол между ними равен 60°. "
+                "Найдите скалярное произведение a · b."
+            ),
+            "answer_aliases": ["12", "12.0", "12,0"],
+            "explanation": "a · b = |a| · |b| · cos 60° = 4 · 6 · 1/2 = 12.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("649909"),
+        },
+        {
+            "prompt": (
+                "Даны векторы a = (5; 0) и b = (−3; 4). "
+                "Найдите косинус угла между векторами a и b."
+            ),
+            "answer_aliases": ["-0.6", "−0.6", "-0,6", "-3/5", "−3/5"],
+            "explanation": "a · b = −15, |a| = |b| = 5, поэтому cos α = −15 / 25 = −0,6.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("649915"),
+        },
+        {
+            "prompt": (
+                "Длина вектора a равна 5, угол между a и b равен 60°, а их "
+                "скалярное произведение равно 20. Найдите длину вектора b."
+            ),
+            "answer_aliases": ["8", "8.0", "8,0"],
+            "explanation": "20 = 5 · |b| · cos 60° = 2,5|b|, поэтому |b| = 8.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("649918"),
+        },
+    ]
 }
 
 
@@ -60,14 +453,54 @@ def _matches(answer: str, aliases: list[str]) -> bool:
 def _public_task(task: dict[str, object], include_answer: bool = False) -> dict[str, object]:
     result = {key: deepcopy(value) for key, value in task.items() if key != "answer_aliases"}
     result["published"] = _published[str(task["id"])]
-    result["source"] = {
-        "label": "По типу открытых материалов ФИПИ ЕГЭ-2026",
-        "url": EXAM["sources"][0]["url"],
-        "adapted": True,
-    }
+    result["source"] = deepcopy(
+        task.get("source")
+        or {
+            "label": "По типу открытых материалов ФИПИ ЕГЭ-2026",
+            "url": EXAM["sources"][0]["url"],
+            "adapted": True,
+        }
+    )
     if include_answer:
         result["accepted_answers"] = deepcopy(task["answer_aliases"])
     return result
+
+
+def _practice_tasks(
+    unit_id: str, tasks: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    overrides = _PRACTICE_TASK_OVERRIDES.get(unit_id)
+    if overrides:
+        result = []
+        for index, override in enumerate(overrides):
+            practice_task = deepcopy(tasks[0])
+            practice_task.update(override)
+            practice_task["lesson_task_key"] = f"{unit_id}:practice:{index + 1}"
+            result.append(practice_task)
+        return result
+    result = []
+    for index, task in enumerate(tasks):
+        practice_task = deepcopy(task)
+        practice_task["lesson_task_key"] = f"{unit_id}:practice:{index + 1}"
+        result.append(practice_task)
+    return result
+
+
+def _homework_tasks(
+    unit_id: str, tasks: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    overrides = _HOMEWORK_TASK_OVERRIDES.get(unit_id)
+    if overrides:
+        result = []
+        for index, override in enumerate(overrides):
+            homework_task = deepcopy(tasks[-1])
+            homework_task.update(override)
+            homework_task["lesson_task_key"] = f"{unit_id}:homework:{index + 1}"
+            result.append(homework_task)
+        return result
+    homework_task = deepcopy(tasks[-1])
+    homework_task["lesson_task_key"] = f"{unit_id}:homework:1"
+    return [homework_task]
 
 
 def _lesson_units() -> list[dict[str, object]]:
@@ -86,8 +519,8 @@ def _lesson_units() -> list[dict[str, object]]:
                 continue
             theory = next(item for item in THEORY if item["topic_id"] == topic_id)
             unit_id = f"{stage['id']}:{topic_id}"
-            homework_task = deepcopy(tasks[-1])
-            homework_task.update(_HOMEWORK_TASK_OVERRIDES.get(unit_id, {}))
+            practice_tasks = _practice_tasks(unit_id, tasks)
+            homework_tasks = _homework_tasks(unit_id, tasks)
             units.append(
                 {
                     "id": unit_id,
@@ -97,8 +530,9 @@ def _lesson_units() -> list[dict[str, object]]:
                     "topic": topic,
                     "theory": theory,
                     "tasks": tasks,
-                    "practice_task": tasks[0],
-                    "homework_task": homework_task,
+                    "practice_tasks": practice_tasks,
+                    "homework_tasks": homework_tasks,
+                    "homework_task": homework_tasks[0],
                 }
             )
     return units
@@ -109,17 +543,72 @@ def _session_theory_completions(session_id: str) -> set[str]:
         return set(_theory_completions.get(session_id, set()))
 
 
-def _has_correct_lesson_attempt(
+def _has_homework_attempt(
     attempts: list[dict[str, object]],
     unit_id: str,
-    mode: str,
-    task_id: str,
+    homework_task: dict[str, object],
 ) -> bool:
+    lesson_task_key = str(homework_task["lesson_task_key"])
     return any(
         item.get("lesson_unit_id") == unit_id
-        and item.get("mode") == mode
-        and item["task_id"] == task_id
+        and item.get("mode") == "homework"
+        and item["task_id"] == homework_task["id"]
+        and item.get("lesson_task_key") == lesson_task_key
+        for item in attempts
+    )
+
+
+def _has_correct_homework_task(
+    attempts: list[dict[str, object]],
+    unit_id: str,
+    homework_task: dict[str, object],
+) -> bool:
+    lesson_task_key = str(homework_task["lesson_task_key"])
+    return any(
+        item.get("lesson_unit_id") == unit_id
+        and item.get("mode") == "homework"
+        and item["task_id"] == homework_task["id"]
+        and item.get("lesson_task_key") == lesson_task_key
         and bool(item["is_correct"])
+        for item in attempts
+    )
+
+
+def _has_practice_attempt(
+    attempts: list[dict[str, object]],
+    unit_id: str,
+    practice_task: dict[str, object],
+    task_index: int,
+) -> bool:
+    lesson_task_key = str(practice_task["lesson_task_key"])
+    return any(
+        item.get("lesson_unit_id") == unit_id
+        and item.get("mode") == "practice"
+        and item["task_id"] == practice_task["id"]
+        and (
+            item.get("lesson_task_key") == lesson_task_key
+            or (task_index == 0 and item.get("lesson_task_key") is None)
+        )
+        for item in attempts
+    )
+
+
+def _has_correct_practice_task(
+    attempts: list[dict[str, object]],
+    unit_id: str,
+    practice_task: dict[str, object],
+    task_index: int,
+) -> bool:
+    lesson_task_key = str(practice_task["lesson_task_key"])
+    return any(
+        item.get("lesson_unit_id") == unit_id
+        and item.get("mode") == "practice"
+        and item["task_id"] == practice_task["id"]
+        and bool(item["is_correct"])
+        and (
+            item.get("lesson_task_key") == lesson_task_key
+            or (task_index == 0 and item.get("lesson_task_key") is None)
+        )
         for item in attempts
     )
 
@@ -130,35 +619,56 @@ def _lesson_unit_state(
     theory_completions: set[str],
 ) -> dict[str, object]:
     unit_id = str(unit["id"])
-    practice_task = unit["practice_task"]
-    homework_task = unit["homework_task"]
+    practice_tasks = unit["practice_tasks"]
+    homework_tasks = unit["homework_tasks"]
     theory_done = unit_id in theory_completions
-    practice_done = _has_correct_lesson_attempt(
-        attempts,
-        unit_id,
-        "practice",
-        str(practice_task["id"]),
+    practice_completion = [
+        _has_practice_attempt(attempts, unit_id, task, index)
+        for index, task in enumerate(practice_tasks)
+    ]
+    practice_attempted_tasks = sum(practice_completion)
+    practice_correct_tasks = sum(
+        _has_correct_practice_task(attempts, unit_id, task, index)
+        for index, task in enumerate(practice_tasks)
     )
-    homework_done = _has_correct_lesson_attempt(
-        attempts,
-        unit_id,
-        "homework",
-        str(homework_task["id"]),
+    current_practice_index = next(
+        (index for index, is_complete in enumerate(practice_completion) if not is_complete),
+        len(practice_tasks),
     )
-    if homework_done:
+    practice_done = practice_attempted_tasks == len(practice_tasks)
+    homework_completion = [
+        _has_homework_attempt(attempts, unit_id, task) for task in homework_tasks
+    ]
+    homework_attempted_tasks = sum(homework_completion)
+    homework_correct_tasks = sum(
+        _has_correct_homework_task(attempts, unit_id, task) for task in homework_tasks
+    )
+    current_homework_index = next(
+        (index for index, is_complete in enumerate(homework_completion) if not is_complete),
+        len(homework_tasks),
+    )
+    homework_done = homework_attempted_tasks == len(homework_tasks)
+    if practice_done:
         current_step = "complete"
     elif not theory_done:
         current_step = "theory"
-    elif not practice_done:
-        current_step = "practice"
     else:
-        current_step = "homework"
+        current_step = "practice"
     return {
         "current_step": current_step,
         "theory_done": theory_done,
         "practice_done": practice_done,
+        "practice_attempted_tasks": practice_attempted_tasks,
+        "practice_correct_tasks": practice_correct_tasks,
+        "practice_total_tasks": len(practice_tasks),
+        "current_practice_index": current_practice_index,
         "homework_done": homework_done,
-        "complete": homework_done,
+        "homework_attempted_tasks": homework_attempted_tasks,
+        "homework_correct_tasks": homework_correct_tasks,
+        "homework_total_tasks": len(homework_tasks),
+        "current_homework_index": current_homework_index,
+        "homework_assigned": practice_done,
+        "complete": practice_done,
     }
 
 
@@ -170,10 +680,56 @@ def _step_state(done: bool, current: bool) -> str:
     return "locked"
 
 
+def _unit_error_summary(
+    unit: dict[str, object], attempts: list[dict[str, object]]
+) -> dict[str, int | float]:
+    task_ids = {str(task["id"]) for task in unit["tasks"]}
+    relevant = [item for item in attempts if str(item["task_id"]) in task_ids]
+    errors = sum(not bool(item["is_correct"]) for item in relevant)
+    error_rate = round(errors / len(relevant) * 100) if relevant else 0
+    return {"attempts": len(relevant), "errors": errors, "error_rate": error_rate}
+
+
+def _ordered_lesson_units(
+    session_id: str,
+    attempts: list[dict[str, object]] | None = None,
+    theory_completions: set[str] | None = None,
+) -> list[dict[str, object]]:
+    """Keep started lessons stable and move frequently missed future units forward."""
+    session_attempts = attempts if attempts is not None else _session_attempts(session_id)
+    completions = (
+        theory_completions
+        if theory_completions is not None
+        else _session_theory_completions(session_id)
+    )
+    ranked = []
+    for base_position, unit in enumerate(_lesson_units()):
+        unit_state = _lesson_unit_state(unit, session_attempts, completions)
+        errors = _unit_error_summary(unit, session_attempts)
+        if unit_state["complete"]:
+            bucket = 0
+            priority = (base_position,)
+        elif unit_state["theory_done"]:
+            bucket = 1
+            priority = (base_position,)
+        elif errors["errors"]:
+            bucket = 2
+            priority = (
+                -int(errors["errors"]),
+                -float(errors["error_rate"]),
+                base_position,
+            )
+        else:
+            bucket = 3
+            priority = (base_position,)
+        ranked.append((bucket, priority, unit))
+    return [item[2] for item in sorted(ranked, key=lambda item: (item[0], item[1]))]
+
+
 def get_current_lesson(session_id: str) -> dict[str, object]:
-    units = _lesson_units()
     attempts = _session_attempts(session_id)
     theory_completions = _session_theory_completions(session_id)
+    units = _ordered_lesson_units(session_id, attempts, theory_completions)
     states = [
         _lesson_unit_state(unit, attempts, theory_completions)
         for unit in units
@@ -197,7 +753,9 @@ def get_current_lesson(session_id: str) -> dict[str, object]:
     unit_state = states[current_index]
     current_step = str(unit_state["current_step"])
     theory = deepcopy(unit["theory"])
-    practice_task = _public_task(unit["practice_task"])
+    practice_task = _public_task(
+        unit["practice_tasks"][int(unit_state["current_practice_index"])]
+    )
     homework_task = _public_task(unit["homework_task"])
     steps = [
         {
@@ -211,14 +769,6 @@ def get_current_lesson(session_id: str) -> dict[str, object]:
             "state": _step_state(
                 bool(unit_state["practice_done"]),
                 current_step == "practice",
-            ),
-        },
-        {
-            "id": "homework",
-            "label": "Домашнее задание",
-            "state": _step_state(
-                bool(unit_state["homework_done"]),
-                current_step == "homework",
             ),
         },
     ]
@@ -247,7 +797,84 @@ def get_current_lesson(session_id: str) -> dict[str, object]:
         },
         "theory": theory,
         "practice_task": practice_task,
+        "practice": {
+            "attempted_tasks": unit_state["practice_attempted_tasks"],
+            "correct_tasks": unit_state["practice_correct_tasks"],
+            "total_tasks": unit_state["practice_total_tasks"],
+            "current_task_number": int(unit_state["current_practice_index"]) + 1,
+            "topic_id": topic["id"],
+        },
         "homework_task": homework_task,
+    }
+
+
+def get_current_homework(session_id: str) -> dict[str, object]:
+    attempts = _session_attempts(session_id)
+    theory_completions = _session_theory_completions(session_id)
+    pending = []
+    for unit in _lesson_units():
+        unit_state = _lesson_unit_state(unit, attempts, theory_completions)
+        if not unit_state["homework_assigned"] or unit_state["homework_done"]:
+            continue
+        assigned_attempt = max(
+            (
+                item
+                for item in attempts
+                if item.get("lesson_unit_id") == unit["id"]
+                and item.get("mode") == "practice"
+            ),
+            key=lambda item: str(item["created_at"]),
+        )
+        assigned_at = datetime.fromisoformat(str(assigned_attempt["created_at"]))
+        pending.append((assigned_at, unit, unit_state))
+
+    if not pending:
+        return {
+            "session_id": session_id,
+            "status": "empty",
+            "pending_count": 0,
+            "message": "Новое домашнее задание появится после учебной практики.",
+        }
+
+    assigned_at, unit, unit_state = min(pending, key=lambda item: item[0])
+    topic = unit["topic"]
+    current_task = unit["homework_tasks"][int(unit_state["current_homework_index"])]
+    pending_count = sum(
+        int(state["homework_total_tasks"]) - int(state["homework_attempted_tasks"])
+        for _, _, state in pending
+    )
+    return {
+        "session_id": session_id,
+        "status": "active",
+        "pending_count": pending_count,
+        "unit_id": unit["id"],
+        "assigned_at": assigned_at.isoformat(),
+        "due_date": (assigned_at.date() + timedelta(days=1)).isoformat(),
+        "attempted_tasks": unit_state["homework_attempted_tasks"],
+        "correct_tasks": unit_state["homework_correct_tasks"],
+        "total_tasks": unit_state["homework_total_tasks"],
+        "current_task_number": int(unit_state["current_homework_index"]) + 1,
+        "remaining_tasks": (
+            int(unit_state["homework_total_tasks"])
+            - int(unit_state["homework_attempted_tasks"])
+        ),
+        "estimated_minutes": sum(
+            int(task["estimated_minutes"])
+            for task in unit["homework_tasks"][int(unit_state["current_homework_index"]) :]
+        ),
+        "topic": {
+            "id": topic["id"],
+            "title": topic["title"],
+            "short_title": topic["short_title"],
+            "description": topic["description"],
+            "accent": topic["accent"],
+        },
+        "stage": {
+            "id": unit["stage_id"],
+            "number": unit["stage_number"],
+            "title": unit["stage_title"],
+        },
+        "task": _public_task(current_task),
     }
 
 
@@ -270,6 +897,7 @@ def _validate_lesson_attempt(
     task_id: str,
     mode: str,
     lesson_unit_id: str | None,
+    lesson_task_key: str | None,
 ) -> None:
     if mode == "diagnostic":
         return
@@ -278,13 +906,46 @@ def _validate_lesson_attempt(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="lesson_unit_id is required for a roadmap lesson attempt",
         )
+    if mode == "homework":
+        homework = get_current_homework(session_id)
+        if homework["status"] != "active":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="No assigned homework is waiting for completion",
+            )
+        if homework["unit_id"] != lesson_unit_id or homework["task"]["id"] != task_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This task is not the current homework assignment",
+            )
+        if lesson_task_key is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="lesson_task_key is required for a homework attempt",
+            )
+        if homework["task"].get("lesson_task_key") != lesson_task_key:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This homework task is no longer available for answering",
+            )
+        if any(
+            item.get("lesson_unit_id") == lesson_unit_id
+            and item.get("mode") == "homework"
+            and item.get("lesson_task_key") == lesson_task_key
+            for item in _session_attempts(session_id)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This homework task has already been answered",
+            )
+        return
     lesson = get_current_lesson(session_id)
     if lesson["status"] == "completed":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Roadmap completed")
     if lesson["unit_id"] != lesson_unit_id or lesson["current_step"] != mode:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Follow the roadmap order: theory, practice, then homework",
+            detail="Follow the roadmap lesson order: theory, then practice",
         )
     expected_task = lesson[f"{mode}_task"]
     if expected_task["id"] != task_id:
@@ -292,6 +953,27 @@ def _validate_lesson_attempt(
             status_code=status.HTTP_409_CONFLICT,
             detail="This task is not the current roadmap step",
         )
+    if mode == "practice":
+        if lesson_task_key is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="lesson_task_key is required for a practice attempt",
+            )
+        if expected_task.get("lesson_task_key") != lesson_task_key:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This practice task is no longer available for answering",
+            )
+        if any(
+            item.get("lesson_unit_id") == lesson_unit_id
+            and item.get("mode") == "practice"
+            and item.get("lesson_task_key") == lesson_task_key
+            for item in _session_attempts(session_id)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This practice task has already been answered",
+            )
 
 
 def get_overview() -> dict[str, object]:
@@ -335,16 +1017,49 @@ def submit_attempt(
     duration_seconds: int,
     mode: str = "diagnostic",
     lesson_unit_id: str | None = None,
+    lesson_task_key: str | None = None,
 ) -> dict[str, object]:
     task = _task(task_id)
     if not _published[task_id]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    _validate_lesson_attempt(
+        session_id,
+        task_id,
+        mode,
+        lesson_unit_id,
+        lesson_task_key,
+    )
     lesson_task = None
-    if mode != "diagnostic":
+    if mode == "practice":
         lesson_before_attempt = get_current_lesson(session_id)
-        lesson_task = lesson_before_attempt.get(f"{mode}_task")
-    _validate_lesson_attempt(session_id, task_id, mode, lesson_unit_id)
-    is_correct = _matches(answer, list(task["answer_aliases"]))
+        lesson_unit = next(
+            unit
+            for unit in _lesson_units()
+            if unit["id"] == lesson_before_attempt.get("unit_id")
+        )
+        lesson_task = next(
+            item
+            for item in lesson_unit["practice_tasks"]
+            if item["lesson_task_key"] == lesson_task_key
+        )
+    elif mode == "homework":
+        homework_before_attempt = get_current_homework(session_id)
+        lesson_unit = next(
+            unit
+            for unit in _lesson_units()
+            if unit["id"] == homework_before_attempt.get("unit_id")
+        )
+        lesson_task = next(
+            item
+            for item in lesson_unit["homework_tasks"]
+            if item["lesson_task_key"] == lesson_task_key
+        )
+    accepted_answers = list(
+        lesson_task["answer_aliases"]
+        if isinstance(lesson_task, dict)
+        else task["answer_aliases"]
+    )
+    is_correct = _matches(answer, accepted_answers)
     attempt = {
         "id": f"attempt-{datetime.now(UTC).timestamp()}",
         "task_id": task_id,
@@ -353,11 +1068,33 @@ def submit_attempt(
         "duration_seconds": duration_seconds,
         "mode": mode,
         "lesson_unit_id": lesson_unit_id,
+        "lesson_task_key": (
+            lesson_task.get("lesson_task_key")
+            if isinstance(lesson_task, dict)
+            else None
+        ),
         "created_at": datetime.now(UTC).isoformat(),
     }
     with _lock:
         _attempts.setdefault(session_id, []).append(attempt)
     topic = next(item for item in TOPICS if item["id"] == task["topic_id"])
+    lesson_after_attempt = get_current_lesson(session_id) if mode != "diagnostic" else None
+    homework_after_attempt = (
+        get_current_homework(session_id) if mode != "diagnostic" else None
+    )
+    practice_unit_complete = bool(
+        mode == "practice"
+        and isinstance(lesson_after_attempt, dict)
+        and lesson_after_attempt.get("unit_id") != lesson_unit_id
+    )
+    homework_unit_complete = bool(
+        mode == "homework"
+        and isinstance(homework_after_attempt, dict)
+        and (
+            homework_after_attempt.get("status") != "active"
+            or homework_after_attempt.get("unit_id") != lesson_unit_id
+        )
+    )
     return {
         "attempt": deepcopy(attempt),
         "is_correct": is_correct,
@@ -368,15 +1105,30 @@ def submit_attempt(
             if isinstance(lesson_task, dict)
             else task["explanation"]
         ),
-        "correct_answer": task["answer_aliases"][0],
+        "correct_answer": accepted_answers[0],
         "theory_id": task["theory_id"],
         "topic": {"id": topic["id"], "title": topic["title"]},
         "recommendation": (
-            "Отлично. Переходите к следующему шагу занятия."
+            "Отлично. Домашняя работа завершена."
+            if homework_unit_complete and is_correct
+            else "Домашняя работа завершена. Ошибки добавлены в план повторения."
+            if homework_unit_complete
+            else "Верно. Переходите к следующей самостоятельной задаче."
+            if is_correct and mode == "homework"
+            else "Задание отмечено неверным. Повторный ответ недоступен; переходите к следующему."
+            if mode == "homework"
+            else "Тематический блок завершён. Домашнее задание добавлено отдельно."
+            if practice_unit_complete
+            else "Верно. Продолжайте следующей задачей по этой же теории."
+            if is_correct and mode == "practice"
+            else "Отлично. Переходите к следующему шагу занятия."
             if is_correct
-            else "Вернитесь к короткой теории и повторите этот тип через 24 часа."
+            else "Задание отмечено неверным. Повторный ответ недоступен; тема добавлена в повторение."
         ),
-        "lesson": get_current_lesson(session_id) if mode != "diagnostic" else None,
+        "lesson": lesson_after_attempt,
+        "homework": homework_after_attempt,
+        "lesson_unit_complete": practice_unit_complete,
+        "homework_unit_complete": homework_unit_complete,
     }
 
 
@@ -412,6 +1164,10 @@ def _topic_metrics(attempts: list[dict[str, object]]) -> list[dict[str, object]]
     return result
 
 
+def _to_test_score(primary_score: int) -> int:
+    return _PROFILE_MATH_TEST_SCORES[primary_score]
+
+
 def _prediction(attempts: list[dict[str, object]]) -> dict[str, object]:
     latest_by_task: dict[str, dict[str, object]] = {}
     for attempt in attempts:
@@ -428,36 +1184,54 @@ def _prediction(attempts: list[dict[str, object]]) -> dict[str, object]:
             for task in TASKS
             if bool(latest_by_task[str(task["id"])]["is_correct"])
         )
+    test_score = _to_test_score(primary) if primary is not None else None
     return {
         "available": available,
         "predicted_primary_score": primary,
-        "predicted_test_score": None,
+        "predicted_test_score": test_score,
         "max_primary_score": int(EXAM["max_primary_score"]),
+        "max_test_score": 100,
         "covered_task_types": len(TASKS) - len(missing),
         "required_task_types": len(TASKS),
         "missing_task_numbers": missing,
         "basis": (
-            "Результат полной диагностики: последняя реальная попытка по каждому из 19 типов."
+            "Ожидаемый балл по полной диагностике: последняя реальная попытка по каждому из 19 типов."
             if available
             else "Прогноз появится после реальных попыток по всем 19 типам заданий."
         ),
         "test_score_note": (
-            "Тестовый балл не рассчитывается: официальной шкалы перевода ЕГЭ-2026 ещё нет."
+            f"{primary} из 32 первичных переведены по шкале ЕГЭ-2026."
+            if available
+            else "До полной диагностики тестовый балл не подставляется."
         ),
+        "test_score_scale": "ЕГЭ-2026",
+        "test_score_scale_source": _TEST_SCORE_SCALE_SOURCE,
     }
 
 
-def _accuracy_history(attempts: list[dict[str, object]]) -> list[dict[str, object]]:
+def _prediction_history(attempts: list[dict[str, object]]) -> list[dict[str, object]]:
+    latest_by_task: dict[str, dict[str, object]] = {}
     history = []
-    correct = 0
-    for index, attempt in enumerate(attempts, start=1):
-        correct += int(bool(attempt["is_correct"]))
-        task = _task(str(attempt["task_id"]))
+    for attempt_number, attempt in enumerate(attempts, start=1):
+        task_id = str(attempt["task_id"])
+        latest_by_task[task_id] = attempt
+        if len(latest_by_task) < len(TASKS):
+            continue
+        primary_score = sum(
+            int(task["max_primary_score"])
+            for task in TASKS
+            if bool(latest_by_task[str(task["id"])]["is_correct"])
+        )
+        task = _task(task_id)
         history.append(
             {
+                "attempt_number": attempt_number,
                 "label": f"№{task['exam_number']}",
-                "score": round(correct / index * 100),
-                "attempt_number": index,
+                "score": _to_test_score(primary_score),
+                "max_score": 100,
+                "primary_score": primary_score,
+                "max_primary_score": int(EXAM["max_primary_score"]),
+                "created_at": attempt["created_at"],
             }
         )
     return history[-10:]
@@ -476,6 +1250,23 @@ def _week_activity(attempts: list[dict[str, object]]) -> list[dict[str, object]]
         }
         for offset in range(6, -1, -1)
     ]
+
+
+def _study_streak(attempts: list[dict[str, object]]) -> int:
+    active_dates = {
+        datetime.fromisoformat(str(item["created_at"])).date() for item in attempts
+    }
+    if not active_dates:
+        return 0
+    today = datetime.now(UTC).date()
+    cursor = today if today in active_dates else today - timedelta(days=1)
+    if cursor not in active_dates:
+        return 0
+    streak = 0
+    while cursor in active_dates:
+        streak += 1
+        cursor -= timedelta(days=1)
+    return streak
 
 
 def get_analytics(session_id: str) -> dict[str, object]:
@@ -523,13 +1314,14 @@ def get_analytics(session_id: str) -> dict[str, object]:
             "correct": correct,
             "accuracy": round(correct / len(attempts) * 100) if attempts else None,
             "study_minutes": round(sum(int(item["duration_seconds"]) for item in attempts) / 60),
+            "streak_days": _study_streak(attempts),
         },
         "prediction": _prediction(attempts),
         "topics": metrics,
         "weak_topics": weak,
         "strong_topics": strong,
         "individual_plan": plan,
-        "history": _accuracy_history(attempts),
+        "prediction_history": _prediction_history(attempts),
         "week_activity": _week_activity(attempts),
     }
 
@@ -539,7 +1331,9 @@ def get_roadmap(session_id: str) -> dict[str, object]:
     metrics = {str(item["topic_id"]): item for item in _topic_metrics(attempts)}
     attempted_task_ids = {str(item["task_id"]) for item in attempts}
     theory_completions = _session_theory_completions(session_id)
-    lesson_units = _lesson_units()
+    base_units = _lesson_units()
+    base_positions = {str(unit["id"]): index for index, unit in enumerate(base_units)}
+    lesson_units = _ordered_lesson_units(session_id, attempts, theory_completions)
     lesson_states = {
         str(unit["id"]): _lesson_unit_state(unit, attempts, theory_completions)
         for unit in lesson_units
@@ -596,16 +1390,14 @@ def get_roadmap(session_id: str) -> dict[str, object]:
                 "topics": [
                     {
                         "unit_id": unit["id"],
-                        "id": topic_id,
-                        "title": metrics[topic_id]["short_title"],
-                        "mastery": metrics[topic_id]["mastery"],
-                        "attempts": metrics[topic_id]["attempts"],
+                        "id": str(unit["topic"]["id"]),
+                        "title": metrics[str(unit["topic"]["id"])]["short_title"],
+                        "mastery": metrics[str(unit["topic"]["id"])]["mastery"],
+                        "attempts": metrics[str(unit["topic"]["id"])]["attempts"],
                         "task_numbers": [
-                            int(task["exam_number"])
-                            for task in stage_tasks
-                            if task["topic_id"] == topic_id
+                            int(task["exam_number"]) for task in unit["tasks"]
                         ],
-                        "theory_id": metrics[topic_id]["theory_id"],
+                        "theory_id": metrics[str(unit["topic"]["id"])]["theory_id"],
                         "current_step": lesson_states[str(unit["id"])]["current_step"],
                         "lesson_state": (
                             "completed"
@@ -616,18 +1408,68 @@ def get_roadmap(session_id: str) -> dict[str, object]:
                         ),
                         "lesson_href": "#lessons",
                     }
-                    for topic_id in stage["topic_ids"]
-                    if (
-                        unit := next(
-                            (
-                                item
-                                for item in stage_units
-                                if item["topic"]["id"] == topic_id
-                            ),
-                            None,
-                        )
-                    )
+                    for unit in stage_units
                 ],
+            }
+        )
+
+    lesson_order = []
+    for position, unit in enumerate(lesson_units, start=1):
+        unit_id = str(unit["id"])
+        topic_id = str(unit["topic"]["id"])
+        unit_state = lesson_states[unit_id]
+        errors = _unit_error_summary(unit, attempts)
+        movement = base_positions[unit_id] + 1 - position
+        is_current = unit_id == current_unit_id
+        if unit_state["complete"]:
+            reason = "Урок пройден; домашняя работа хранится отдельно."
+        elif errors["errors"] and movement > 0:
+            reason = (
+                f"Поднята на {movement} поз. из-за ошибок: "
+                f"{errors['errors']} из {errors['attempts']} попыток."
+            )
+        elif errors["errors"]:
+            reason = f"Приоритет подтверждён ошибками: {errors['errors']} попыток."
+        elif is_current:
+            reason = "Текущий урок по базовой логике курса."
+        else:
+            reason = "Базовый порядок: от опорных тем к более сложным."
+        lesson_order.append(
+            {
+                "position": position,
+                "unit_id": unit_id,
+                "topic": {
+                    "id": topic_id,
+                    "title": unit["topic"]["title"],
+                    "short_title": unit["topic"]["short_title"],
+                    "description": unit["topic"]["description"],
+                },
+                "stage": {
+                    "id": unit["stage_id"],
+                    "number": unit["stage_number"],
+                    "title": unit["stage_title"],
+                },
+                "task_numbers": [
+                    int(task["exam_number"]) for task in unit["tasks"]
+                ],
+                "mastery": metrics[topic_id]["mastery"],
+                "current_step": unit_state["current_step"],
+                "lesson_state": (
+                    "completed"
+                    if unit_state["complete"]
+                    else "current"
+                    if is_current
+                    else "upcoming"
+                ),
+                "homework_status": (
+                    "completed"
+                    if unit_state["homework_done"]
+                    else "assigned"
+                    if unit_state["homework_assigned"]
+                    else "not_assigned"
+                ),
+                "is_adapted": bool(errors["errors"] and movement > 0),
+                "reason": reason,
             }
         )
 
@@ -639,8 +1481,18 @@ def get_roadmap(session_id: str) -> dict[str, object]:
     return {
         "session_id": session_id,
         "principle": (
-            "Ученик идёт по темам roadmap без перескоков: теория, затем практика и ДЗ."
+            "Roadmap задаёт порядок уроков и поднимает темы, где ученик чаще ошибается. "
+            "Домашние задания и интервальные повторения планируются отдельно."
         ),
+        "adaptation": {
+            "active": any(item["is_adapted"] for item in lesson_order),
+            "adapted_units": sum(bool(item["is_adapted"]) for item in lesson_order),
+            "message": (
+                "Порядок пересчитан по реальным ошибкам ученика."
+                if any(item["is_adapted"] for item in lesson_order)
+                else "Пока используется базовый порядок курса; он изменится после ошибок."
+            ),
+        },
         "current_stage_id": current_stage_id,
         "current_unit_id": current_unit_id,
         "overall_progress": current_lesson["overall_progress"],
@@ -649,7 +1501,124 @@ def get_roadmap(session_id: str) -> dict[str, object]:
         "covered_task_types": len(attempted_task_ids),
         "total_task_types": len(TASKS),
         "current_lesson": current_lesson,
+        "lesson_order": lesson_order,
         "stages": stages,
+    }
+
+
+def get_student_dashboard(session_id: str) -> dict[str, object]:
+    analytics = get_analytics(session_id)
+    roadmap = get_roadmap(session_id)
+    lesson = roadmap["current_lesson"]
+    homework = get_current_homework(session_id)
+    today = datetime.now(UTC).date()
+
+    lesson_today = None
+    if lesson["status"] == "active":
+        current_step = str(lesson["current_step"])
+        lesson_today = {
+            "unit_id": lesson["unit_id"],
+            "title": lesson["topic"]["short_title"],
+            "description": lesson["topic"]["description"],
+            "step": current_step,
+            "step_label": "Теория" if current_step == "theory" else "Практика",
+            "estimated_minutes": (
+                lesson["theory"]["read_minutes"]
+                if current_step == "theory"
+                else lesson["practice_task"]["estimated_minutes"]
+            ),
+            "href": "#lessons",
+        }
+
+    homework_today = None
+    if homework["status"] == "active":
+        homework_today = {
+            "unit_id": homework["unit_id"],
+            "title": homework["topic"]["short_title"],
+            "description": (
+                f"Самостоятельная работа: осталось {homework['remaining_tasks']} "
+                "заданий без подсказок из практики."
+            ),
+            "due_date": homework["due_date"],
+            "estimated_minutes": homework["estimated_minutes"],
+            "href": "#homework",
+        }
+
+    roadmap_preview = [
+        item for item in roadmap["lesson_order"] if item["lesson_state"] != "completed"
+    ][:4]
+    schedule = []
+    for index, item in enumerate(roadmap_preview[:3]):
+        schedule.append(
+            {
+                "kind": "lesson",
+                "date": (today + timedelta(days=index * 2)).isoformat(),
+                "title": item["topic"]["short_title"],
+                "detail": (
+                    "Текущий урок"
+                    if item["lesson_state"] == "current"
+                    else f"Этап {item['stage']['number']} · по roadmap"
+                ),
+                "href": "#lessons",
+            }
+        )
+    if homework_today:
+        schedule.append(
+            {
+                "kind": "homework",
+                "date": homework_today["due_date"],
+                "title": homework_today["title"],
+                "detail": "Срок домашней работы",
+                "href": "#homework",
+            }
+        )
+    for item in analytics["individual_plan"]:
+        schedule.append(
+            {
+                "kind": "review",
+                "date": item["due_date"],
+                "title": item["title"],
+                "detail": item["action"],
+                "href": "#lessons",
+            }
+        )
+    kind_order = {"homework": 0, "review": 1, "lesson": 2}
+    schedule.sort(key=lambda item: (str(item["date"]), kind_order[str(item["kind"])]))
+
+    prediction = analytics["prediction"]
+    return {
+        "session_id": session_id,
+        "date": today.isoformat(),
+        "metrics": {
+            "expected_test_score": prediction["predicted_test_score"],
+            "max_test_score": prediction["max_test_score"],
+            "prediction_available": prediction["available"],
+            "prediction_basis": prediction["basis"],
+            "streak_days": analytics["summary"]["streak_days"],
+        },
+        "today": {
+            "lesson": lesson_today,
+            "homework": homework_today,
+            "reviews": [
+                item
+                for item in analytics["individual_plan"]
+                if str(item["due_date"]) <= today.isoformat()
+            ],
+        },
+        "schedule": schedule,
+        "schedule_note": (
+            "Даты следующих уроков ориентировочные: после каждой попытки roadmap "
+            "пересчитывает порядок и добавляет повторения."
+        ),
+        "roadmap": {
+            "progress": roadmap["overall_progress"],
+            "completed_units": roadmap["completed_lesson_units"],
+            "total_units": roadmap["total_lesson_units"],
+            "adaptation": roadmap["adaptation"],
+            "next_lessons": roadmap_preview,
+            "href": "#roadmap",
+            "lessons_href": "#lessons",
+        },
     }
 
 

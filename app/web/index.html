@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Прототип персональной подготовки к ЕГЭ по профильной математике">
   <title>Вектор — подготовка к ЕГЭ</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=roadmap-2">
+  <link rel="stylesheet" href="/assets/styles.css?v=test-score-2">
 </head>
 <body>
   <div class="app-shell">
@@ -24,8 +24,9 @@
       <nav class="nav" aria-label="Главная навигация">
         <p class="nav-label">Обучение</p>
         <button class="nav-item active" data-page="dashboard"><span>⌂</span>Главная</button>
-        <button class="nav-item" data-page="roadmap"><span>↗</span>Мой маршрут</button>
-        <button class="nav-item" data-page="lessons"><span>▶</span>Занятия<b class="nav-badge">1</b></button>
+        <button class="nav-item" data-page="lessons"><span>▶</span>Уроки<b class="nav-badge">1</b></button>
+        <button class="nav-item" data-page="homework"><span>✓</span>Домашние задания<b class="nav-badge hidden" id="homework-badge">1</b></button>
+        <button class="nav-item" data-page="roadmap"><span>↗</span>Роадмап</button>
         <p class="nav-label">Результаты</p>
         <button class="nav-item" data-page="analytics"><span>⌁</span>Аналитика</button>
         <button class="nav-item admin-only hidden" data-page="admin"><span>⚙</span>Управление</button>
@@ -33,8 +34,8 @@
 
       <div class="sidebar-footer">
         <button class="role-switch" id="role-switch" type="button">
-          <span class="avatar">АК</span>
-          <span><b id="role-name">Алексей</b><small id="role-label">Ученик · 11 класс</small></span>
+          <span class="avatar">УЧ</span>
+          <span><b id="role-name">Ученик</b><small id="role-label">Текущая сессия</small></span>
           <span class="switch-icon">⇄</span>
         </button>
         <p class="prototype-label">Прототип · результаты текущей сессии</p>
@@ -60,6 +61,6 @@
   </div>
 
   <div class="toast-region" id="toast-region" aria-live="polite"></div>
-  <script src="/assets/app.js?v=roadmap-2" defer></script>
+  <script src="/assets/app.js?v=test-score-2" defer></script>
 </body>
 </html>

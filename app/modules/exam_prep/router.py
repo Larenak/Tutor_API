@@ -9,9 +9,11 @@ from app.modules.exam_prep.service import (
     get_admin_dashboard,
     get_admin_users,
     get_analytics,
+    get_current_homework,
     get_current_lesson,
     get_overview,
     get_roadmap,
+    get_student_dashboard,
     list_tasks,
     list_theory,
     set_task_status,
@@ -49,6 +51,7 @@ async def create_attempt(payload: AttemptCreate) -> SuccessResponse[dict[str, ob
             duration_seconds=payload.duration_seconds,
             mode=payload.mode,
             lesson_unit_id=payload.lesson_unit_id,
+            lesson_task_key=payload.lesson_task_key,
         )
     )
 
@@ -58,6 +61,13 @@ async def current_lesson(
     session_id: Annotated[str, Query(min_length=1, max_length=80)] = "local-student",
 ) -> SuccessResponse[dict[str, object]]:
     return success(get_current_lesson(session_id))
+
+
+@router.get("/homework/current", response_model=SuccessResponse[dict[str, object]])
+async def current_homework(
+    session_id: Annotated[str, Query(min_length=1, max_length=80)] = "local-student",
+) -> SuccessResponse[dict[str, object]]:
+    return success(get_current_homework(session_id))
 
 
 @router.post(
@@ -82,6 +92,13 @@ async def roadmap(
     session_id: Annotated[str, Query(min_length=1, max_length=80)] = "local-student",
 ) -> SuccessResponse[dict[str, object]]:
     return success(get_roadmap(session_id))
+
+
+@router.get("/dashboard", response_model=SuccessResponse[dict[str, object]])
+async def dashboard(
+    session_id: Annotated[str, Query(min_length=1, max_length=80)] = "local-student",
+) -> SuccessResponse[dict[str, object]]:
+    return success(get_student_dashboard(session_id))
 
 
 @router.get("/admin/dashboard", response_model=SuccessResponse[dict[str, object]])

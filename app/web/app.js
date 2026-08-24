@@ -10,12 +10,15 @@ const state = {
   analytics: null,
   roadmap: null,
   lesson: null,
+  homework: null,
+  dashboard: null,
   admin: null,
   adminUsers: [],
   adminTasks: [],
   currentTask: 0,
   practiceFilter: "all",
   focusTheory: null,
+  lessonView: null,
 };
 
 const view = document.querySelector("#view");
@@ -32,15 +35,17 @@ async function request(path, options = {}) {
 }
 
 async function loadData() {
-  const [overview, tasks, theory, analytics, roadmap, lesson, admin, adminUsers, adminTasks] =
+  const [overview, tasks, theory, analytics, roadmap, lesson, homework, dashboard, admin, adminUsers, adminTasks] =
     await Promise.all([
       request("/overview"), request("/tasks"), request("/theory"),
       request(`/analytics?session_id=${sessionId}`),
       request(`/roadmap?session_id=${sessionId}`),
-      request(`/lesson/current?session_id=${sessionId}`), request("/admin/dashboard"),
+      request(`/lesson/current?session_id=${sessionId}`),
+      request(`/homework/current?session_id=${sessionId}`),
+      request(`/dashboard?session_id=${sessionId}`), request("/admin/dashboard"),
       request("/admin/users"), request("/admin/tasks"),
     ]);
-  Object.assign(state, { overview, tasks, theory, analytics, roadmap, lesson, admin, adminUsers, adminTasks });
+  Object.assign(state, { overview, tasks, theory, analytics, roadmap, lesson, homework, dashboard, admin, adminUsers, adminTasks });
 }
 
 function escapeHtml(value) {
@@ -55,6 +60,12 @@ function difficultyLabel(value) {
 
 function formatDate(value) {
   return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short" }).format(new Date(value));
+}
+
+function formatLongDate(value) {
+  return new Intl.DateTimeFormat("ru-RU", {
+    weekday: "long", day: "numeric", month: "long",
+  }).format(new Date(`${value}T12:00:00`));
 }
 
 function formatDateTime(value) {
@@ -99,7 +110,7 @@ function renderForecastCard(prediction) {
   if (prediction.available) {
     return `<aside class="forecast-card">
       <div class="card-kicker"><span>Полная диагностика</span><span class="model-badge">реальные ответы</span></div>
-      <div class="forecast-number">${prediction.predicted_primary_score}<small> / 32 первичных</small></div>
+      <div class="forecast-number">${prediction.predicted_test_score}<small> / ${prediction.max_test_score} вторичных</small></div>
       <div class="forecast-range">Пройдены все ${prediction.required_task_types} типов заданий</div>
       <div class="forecast-track"><i style="width:100%"></i><b style="left:calc(100% - 8px)"></b></div>
       <p class="forecast-note">${prediction.basis}<br>${prediction.test_score_note}</p>
@@ -116,125 +127,258 @@ function renderForecastCard(prediction) {
 }
 
 function renderDashboard() {
-  const analytics = state.analytics;
-  const prediction = analytics.prediction;
-  const hasAttempts = analytics.summary.attempts > 0;
-  const lesson = state.lesson;
-  const roadmapDone = lesson.status === "completed";
-  const next = analytics.individual_plan;
-  const maxDay = Math.max(1, ...analytics.week_activity.map((item) => item.attempts));
+  const data = state.dashboard;
+  const metrics = data.metrics;
+  const lesson = data.today.lesson;
+  const homework = data.today.homework;
+  const scheduleLabels = { lesson: "Урок", homework: "ДЗ", review: "Повторение" };
+  const score = metrics.prediction_available ? metrics.expected_test_score : "—";
   view.innerHTML = `
-    <div class="hero-grid">
-      <section class="hero-card">
-        <div class="hero-copy">
-          <p class="eyebrow">Личный кабинет</p>
-          <h1>${roadmapDone ? "Маршрут пройден." : "Ваш план подготовки к ЕГЭ."}</h1>
-          <p>${roadmapDone ? "Все темы и обязательные шаги завершены." : `Следующий шаг: ${lesson.topic.short_title} · ${lesson.steps.find((step) => step.state === "current").label}. Пройдено ${lesson.completed_units} из ${lesson.total_units} тем.`}</p>
-          <div class="hero-actions"><button class="primary-button" data-go="lessons">${roadmapDone ? "Посмотреть результат" : `Продолжить: ${lesson.steps.find((step) => step.state === "current").label.toLowerCase()}`} →</button><small>Занятие ${lesson.position} из ${lesson.total_units}</small></div>
-        </div>
-        <div class="hero-visual" aria-hidden="true">
-          <div class="formula-orbit"></div><span class="formula f1">P(A)</span>
-          <span class="formula f2">x² + y²</span><span class="formula f3">f′(x)</span><span class="pencil-line"></span>
-        </div>
-      </section>
-      ${renderForecastCard(prediction)}
-    </div>
+    <header class="dashboard-welcome">
+      <div><p class="eyebrow">${formatLongDate(data.date)}</p><h1>План на сегодня</h1><p>Уроки, самостоятельная работа и повторения собраны из вашего роадмапа.</p></div>
+    </header>
 
-    <section class="section">
-      <div class="section-heading"><div><h2>Карта знаний</h2><p>Проценты появляются только после реальных попыток</p></div><button class="text-button" data-go="analytics">Вся аналитика →</button></div>
-      <div class="topic-grid">${state.overview.topics.slice(0, 4).map(topicCard).join("")}</div>
+    <section class="dashboard-overview" aria-label="Общие сведения об обучении">
+      <div class="overview-heading"><span>Общие сведения</span><b>Ваш прогресс вне плана на сегодня</b><p>Показатели обновляются по результатам всех занятий.</p></div>
+      <article><span>Ожидаемый балл ЕГЭ</span><b>${score}<small> / ${metrics.max_test_score}</small></b><p>${metrics.prediction_available ? "вторичный · по реальным ответам" : "после 19 типов заданий"}</p></article>
+      <article><span>Серия занятий</span><b>${metrics.streak_days}<small> дн.</small></b><p>${metrics.streak_days ? "продолжайте сегодня" : "начните серию сегодня"}</p></article>
     </section>
 
-    <section class="section two-column">
-      <div class="panel">
-        <div class="section-heading"><div><h2>Ближайший план</h2><p>Только темы, где уже были ошибки</p></div><button class="text-button" data-go="roadmap">Маршрут →</button></div>
-        <div class="next-list">${next.length ? next.map((item) => `<article class="next-item">
-          <span class="next-date">${formatDate(item.due_date)}</span>
-          <span><b>${item.title}</b><small>${item.action}</small><span class="content-links"><a href="#lessons" data-roadmap-topic="${item.topic_id}">Открыть по roadmap</a></span></span><em>${percent(item.mastery)}</em>
-        </article>`).join("") : `<div class="empty-state compact">${hasAttempts ? "По текущим ответам тем с ошибками нет." : "План повторения появится после первой ошибки."}</div>`}</div>
+    <section class="section dashboard-section">
+      <div class="section-heading"><div><h2>Сегодня</h2><p>Урок и домашнее задание — два отдельных учебных потока</p></div><button class="text-button" data-go="lessons">Все уроки →</button></div>
+      <div class="today-grid">
+        ${lesson ? `<article class="today-card lesson-today"><div class="today-card-top"><span class="today-kind">Урок</span><span>${lesson.estimated_minutes} мин</span></div><h3>${escapeHtml(lesson.title)}</h3><p>${escapeHtml(lesson.description)}</p><div class="today-card-footer"><span><i></i>${escapeHtml(lesson.step_label)}</span><button class="primary-button" data-go="lessons">Продолжить урок →</button></div></article>` : '<article class="today-card empty-today"><span class="today-kind">Уроки</span><h3>Курс пройден</h3><p>Все уроки текущего роадмапа завершены.</p><button class="secondary-button" data-go="roadmap">Посмотреть роадмап</button></article>'}
+        ${homework ? `<article class="today-card homework-today"><div class="today-card-top"><span class="today-kind">Домашнее задание</span><span>до ${formatDate(homework.due_date)}</span></div><h3>${escapeHtml(homework.title)}</h3><p>${escapeHtml(homework.description)}</p><div class="today-card-footer"><span><i></i>${homework.estimated_minutes} мин самостоятельно</span><button class="secondary-button" data-go="homework">Открыть ДЗ →</button></div></article>` : '<article class="today-card empty-today"><span class="today-kind">Домашнее задание</span><h3>Пока ничего не задано</h3><p>ДЗ появится здесь после практики, но решаться будет отдельно от урока.</p><button class="secondary-button" data-go="homework">Раздел ДЗ</button></article>'}
       </div>
-      <div class="panel">
-        <div class="section-heading"><div><h2>Практика за 7 дней</h2><p>Количество ваших решений по дням</p></div></div>
-        <div class="week-bars">${analytics.week_activity.map((item) => `<span title="${formatDate(item.date)} · решений: ${item.attempts}" style="--bar-height:${item.attempts ? Math.max(18, item.attempts / maxDay * 100) : 8}%"><i></i><small>${item.attempts}</small></span>`).join("")}</div>
-        <p class="data-note">${analytics.summary.attempts} попыток · ${analytics.summary.study_minutes} минут практики. Здесь нет демонстрационных значений.</p>
+    </section>
+
+    <section class="section dashboard-lower">
+      <div class="panel schedule-panel">
+        <div class="section-heading"><div><h2>Расписание</h2><p>Роадмап + интервальные повторения</p></div></div>
+        <div class="schedule-list">${data.schedule.length ? data.schedule.slice(0, 7).map((item) => `<article class="schedule-item ${item.kind}"><time datetime="${item.date}"><b>${formatDate(item.date)}</b><small>${scheduleLabels[item.kind]}</small></time><span><b>${escapeHtml(item.title)}</b><small>${escapeHtml(item.detail)}</small></span><button class="schedule-arrow" data-go="${item.kind === "homework" ? "homework" : "lessons"}" aria-label="Открыть">→</button></article>`).join("") : '<div class="empty-state compact">Расписание заполнится после формирования роадмапа.</div>'}</div>
+        <p class="schedule-note">${escapeHtml(data.schedule_note)}</p>
+      </div>
+      <div class="panel roadmap-preview-panel">
+        <div class="section-heading"><div><h2>Дальше по роадмапу</h2><p>${escapeHtml(data.roadmap.adaptation.message)}</p></div><button class="text-button" data-go="roadmap">Весь план →</button></div>
+        <ol class="roadmap-preview">${data.roadmap.next_lessons.map((item) => `<li class="${item.lesson_state}"><span>${item.position}</span><div><b>${escapeHtml(item.topic.short_title)}</b><small>Задания ${item.task_numbers.map((number) => `№${number}`).join(", ")}</small>${item.is_adapted ? '<em>↑ поднято из-за ошибок</em>' : ""}</div></li>`).join("")}</ol>
+        <button class="lessons-link" data-go="lessons"><span>▶</span><b>Перейти в раздел с уроками</b><small>Порядок уроков синхронизирован с роадмапом</small><i>→</i></button>
       </div>
     </section>`;
   bindGoButtons();
-  bindContentLinks();
 }
 
 function renderRoadmap() {
   const roadmap = state.roadmap;
-  const stepLabels = { theory: "Теория", practice: "Практика", homework: "ДЗ", complete: "Пройдено" };
-  view.innerHTML = `${pageHeader("Персональный маршрут", "Темы и задания ЕГЭ", roadmap.principle,
-    '<button class="primary-button" data-go="lessons">Текущее занятие →</button>')}
-    <section class="roadmap-summary"><div><h2>Прогресс по занятиям</h2><p>Тема засчитывается только после последовательного прохождения теории, практики и домашнего задания.</p></div>
-      <div class="roadmap-progress-big">${roadmap.completed_lesson_units}<small>из ${roadmap.total_lesson_units} тем</small></div></section>
-    <div class="roadmap-list">${roadmap.stages.map((stage) => `<article class="stage-card ${stage.state}">
-      <span class="stage-number">${stage.state === "completed" ? "✓" : stage.number}</span>
-      <div class="stage-main"><h3>${stage.title}</h3><p>${stage.subtitle} · ${stage.weeks}</p>
-        <div class="roadmap-topics">${stage.topics.map((topic) => `<div class="roadmap-topic ${topic.lesson_state}"><span><b>${topic.title}</b><small>Задания ${topic.task_numbers.map((number) => `№${number}`).join(", ")} · ${topic.lesson_state === "locked" ? "откроется после предыдущей темы" : stepLabels[topic.current_step]}</small></span><span class="lesson-state-badge ${topic.lesson_state}">${topic.lesson_state === "completed" ? "✓ Пройдено" : topic.lesson_state === "current" ? `Сейчас: ${stepLabels[topic.current_step]}` : "🔒 Закрыто"}</span>${topic.lesson_state === "current" ? '<button class="text-button" data-go="lessons">Открыть →</button>' : ""}</div>`).join("")}</div>
-        <div class="task-link-row">${stage.tasks.map((task) => `<span class="task-link ${task.difficulty === "expert" ? "complex" : ""}">№${task.exam_number} · ${task.title}</span>`).join("")}</div>
-      </div>
-      <div class="stage-meta"><b>${stage.completed_lessons}/${stage.lesson_units}</b><small>${stage.state === "current" ? "текущий этап" : stage.state === "completed" ? "пройден" : "впереди"}</small></div>
-    </article>`).join("")}</div>`;
+  const stepLabels = { theory: "Теория", practice: "Практика", complete: "Урок пройден" };
+  view.innerHTML = `${pageHeader("Персональный роадмап", "Путеводитель по курсу", roadmap.principle,
+    '<button class="primary-button" data-go="lessons">Открыть текущий урок →</button>')}
+    <section class="roadmap-summary adaptive-summary"><div><span class="adaptive-pulse"></span><p class="eyebrow">Адаптивный порядок</p><h2>${roadmap.adaptation.active ? "План уже перестроен" : "Сейчас действует базовый план"}</h2><p>${escapeHtml(roadmap.adaptation.message)} Завершённые уроки остаются на месте, а темы с частыми ошибками поднимаются выше среди следующих.</p></div>
+      <div class="roadmap-progress-big">${roadmap.completed_lesson_units}<small>из ${roadmap.total_lesson_units} уроков</small><i style="width:${roadmap.overall_progress}%"></i></div></section>
+    <section class="course-order-section">
+      <div class="section-heading"><div><h2>Порядок тем и заданий</h2><p>Это тот же порядок, который используется в разделе «Уроки»</p></div></div>
+      <ol class="course-order">${roadmap.lesson_order.map((item) => `<li class="course-order-item ${item.lesson_state} ${item.is_adapted ? "adapted" : ""}">
+        <span class="course-position">${item.lesson_state === "completed" ? "✓" : item.position}</span>
+        <div class="course-order-main"><div class="course-order-title"><span>Этап ${item.stage.number}</span>${item.is_adapted ? '<em>↑ приоритет изменён</em>' : ""}</div><h3>${escapeHtml(item.topic.short_title)}</h3><p>${escapeHtml(item.topic.description)}</p><div class="course-task-numbers">${item.task_numbers.map((number) => `<span>№${number}</span>`).join("")}</div><small class="course-reason">${escapeHtml(item.reason)}</small></div>
+        <div class="course-order-state"><b>${item.lesson_state === "completed" ? "Пройдено" : item.lesson_state === "current" ? `Сейчас: ${stepLabels[item.current_step]}` : "Впереди"}</b><small>${item.homework_status === "assigned" ? "ДЗ назначено отдельно" : item.homework_status === "completed" ? "ДЗ выполнено" : "ДЗ после практики"}</small>${item.lesson_state === "current" ? '<button class="text-button" data-go="lessons">Открыть урок →</button>' : ""}</div>
+      </li>`).join("")}</ol>
+    </section>`;
   bindGoButtons();
 }
 
 function lessonStepTitle(step) {
-  return { theory: "Теория", practice: "Практика", homework: "Домашнее задание" }[step] || "Завершено";
+  return { theory: "Теория", practice: "Практика" }[step] || "Завершено";
+}
+
+function vectorDiagram(type) {
+  if (type === "coordinate-grid") {
+    return `<figure class="theory-diagram coordinate-diagram">
+      <svg viewBox="0 0 420 250" role="img" aria-labelledby="coordinate-diagram-title coordinate-diagram-desc">
+        <title id="coordinate-diagram-title">Координаты вектора по клеткам</title>
+        <desc id="coordinate-diagram-desc">Вектор направлен на четыре клетки вправо и на три клетки вверх.</desc>
+        <defs><marker id="vector-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z"></path></marker></defs>
+        <g class="diagram-grid">${Array.from({ length: 9 }, (_, index) => `<line x1="${50 + index * 38}" y1="28" x2="${50 + index * 38}" y2="218"></line>`).join("")}${Array.from({ length: 6 }, (_, index) => `<line x1="50" y1="${28 + index * 38}" x2="354" y2="${28 + index * 38}"></line>`).join("")}</g>
+        <line class="diagram-axis" x1="50" y1="218" x2="380" y2="218" marker-end="url(#vector-arrow)"></line>
+        <line class="diagram-axis" x1="50" y1="232" x2="50" y2="14" marker-end="url(#vector-arrow)"></line>
+        <line class="diagram-guide" x1="88" y1="180" x2="240" y2="180"></line>
+        <line class="diagram-guide" x1="240" y1="180" x2="240" y2="66"></line>
+        <line class="diagram-vector" x1="88" y1="180" x2="240" y2="66" marker-end="url(#vector-arrow)"></line>
+        <circle class="diagram-point" cx="88" cy="180" r="5"></circle><circle class="diagram-point" cx="240" cy="66" r="5"></circle>
+        <text x="103" y="199">Δx = +4</text><text x="249" y="130">Δy = +3</text><text class="diagram-answer" x="250" y="48">a = (4; 3)</text>
+        <text x="382" y="222">x</text><text x="39" y="16">y</text>
+      </svg>
+      <figcaption>Смотрите не на положение стрелки, а на её перемещение: вправо +4, вверх +3.</figcaption>
+    </figure>`;
+  }
+  if (type === "operation-flow") {
+    return `<figure class="theory-diagram operation-diagram" aria-label="Порядок вычисления линейной комбинации">
+      <div class="operation-node"><small>1 · коэффициенты</small><b>a + 3b</b></div><span>→</span>
+      <div class="operation-node"><small>2 · координаты</small><b>(2 + 3·1; 0 + 3·4)</b></div><span>→</span>
+      <div class="operation-node accent"><small>3 · новый вектор</small><b>(5; 12)</b></div>
+      <figcaption>Не ищите длину раньше времени: сначала получите один новый вектор.</figcaption>
+    </figure>`;
+  }
+  if (type === "scalar-angle") {
+    return `<figure class="theory-diagram scalar-diagram">
+      <svg viewBox="0 0 420 230" role="img" aria-labelledby="scalar-diagram-title scalar-diagram-desc">
+        <title id="scalar-diagram-title">Угол между двумя векторами</title>
+        <desc id="scalar-diagram-desc">Два вектора имеют общее начало и образуют угол альфа.</desc>
+        <defs><marker id="scalar-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z"></path></marker></defs>
+        <line class="diagram-vector" x1="72" y1="184" x2="350" y2="184" marker-end="url(#scalar-arrow)"></line>
+        <line class="diagram-vector warm" x1="72" y1="184" x2="250" y2="55" marker-end="url(#scalar-arrow)"></line>
+        <path class="diagram-angle" d="M132 184 A60 60 0 0 0 121 149"></path>
+        <text class="diagram-answer" x="137" y="159">α</text><text x="342" y="208">a</text><text x="250" y="48">b</text>
+        <text class="diagram-formula" x="103" y="92">a · b = |a|·|b|·cos α</text>
+      </svg>
+      <figcaption>Оба вектора мысленно отложены от одной точки — только тогда виден угол между ними.</figcaption>
+    </figure>`;
+  }
+  return "";
+}
+
+function renderTheoryExample(example, secondary = false) {
+  if (!example) return "";
+  return `<aside class="worked-example ${secondary ? "secondary" : ""}">
+    <span>${escapeHtml(example.label)}</span><b>${escapeHtml(example.prompt)}</b>
+    <p>${escapeHtml(example.solution)}</p><strong>${escapeHtml(example.answer)}</strong>
+  </aside>`;
+}
+
+function renderDetailedTheory(chapter) {
+  const scope = chapter.exam_scope;
+  return `<section class="exam-scope">
+      <div><span>${escapeHtml(scope.label)}</span><h3>Что действительно проверяют</h3><p>${escapeHtml(scope.text)}</p></div>
+      <ul>${scope.skills.map((skill) => `<li>${escapeHtml(skill)}</li>`).join("")}</ul>
+    </section>
+    <div class="formula-strip">${chapter.key_points.map((point) => `<span>${escapeHtml(point)}</span>`).join("")}</div>
+    <div class="theory-outline" aria-label="Содержание конспекта">${chapter.sections.map((section) => `<span><b>${escapeHtml(section.number)}</b>${escapeHtml(section.title)}</span>`).join("")}</div>
+    <div class="detailed-theory">${chapter.sections.map((section) => `<section class="theory-section" id="theory-section-${escapeHtml(section.id)}">
+      <header><span>${escapeHtml(section.number)}</span><div><p>Экзаменационная база</p><h3>${escapeHtml(section.title)}</h3></div></header>
+      <div class="theory-section-layout ${section.diagram ? "with-diagram" : ""}">
+        <div class="theory-section-copy"><p class="section-lead">${escapeHtml(section.lead)}</p>
+          <ul class="explanation-list">${section.paragraphs.map((paragraph) => `<li>${escapeHtml(paragraph)}</li>`).join("")}</ul>
+          <div class="section-formulas">${section.formulas.map((formula) => `<code>${escapeHtml(formula)}</code>`).join("")}</div>
+        </div>
+        ${vectorDiagram(section.diagram)}
+      </div>
+      <div class="example-row">${renderTheoryExample(section.example)}${renderTheoryExample(section.secondary_example, true)}</div>
+      <p class="exam-note"><b>На ЕГЭ</b>${escapeHtml(section.exam_note)}</p>
+    </section>`).join("")}</div>
+    <section class="exam-pattern-section"><p class="eyebrow">Пять формулировок — один набор правил</p><h3>Как узнать тип задания</h3>
+      <div class="exam-pattern-grid">${chapter.exam_patterns.map((pattern, index) => `<article><span>0${index + 1}</span><b>${escapeHtml(pattern.title)}</b><p>${escapeHtml(pattern.method)}</p></article>`).join("")}</div>
+    </section>
+    <div class="theory-review-grid">
+      <section class="mistake-card"><p class="eyebrow">Типичные ошибки</p><h3>Где теряют балл</h3><ul>${chapter.mistakes.map((mistake) => `<li>${escapeHtml(mistake)}</li>`).join("")}</ul></section>
+      <section class="checklist-card"><p class="eyebrow">Перед ответом</p><h3>Проверка за 20 секунд</h3><ol>${chapter.checklist.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></section>
+    </div>
+    <footer class="theory-reference"><b>Основа конспекта</b><span>${escapeHtml(chapter.reference.title)} · ${escapeHtml(chapter.reference.sections)}</span><small>${escapeHtml(chapter.reference.note)}</small></footer>`;
+}
+
+function renderLessonTheory(chapter) {
+  if (chapter.sections?.length) return renderDetailedTheory(chapter);
+  return `<ul class="formula-list">${chapter.key_points.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>`;
 }
 
 function renderLessons() {
   const lesson = state.lesson;
   if (lesson.status === "completed") {
-    view.innerHTML = `${pageHeader("Занятия по roadmap", "Маршрут завершён", "Все темы пройдены в порядке: теория, практика, домашнее задание.")}
-      <section class="lesson-complete"><span>✓</span><h2>Отличная работа</h2><p>Вы завершили ${lesson.total_units} тем и дошли до конца учебного маршрута.</p><button class="secondary-button" data-go="roadmap">Посмотреть roadmap</button></section>`;
+    view.innerHTML = `${pageHeader("Уроки по роадмапу", "Учебный маршрут завершён", "Все уроки пройдены в порядке, сформированном роадмапом.")}
+      <section class="lesson-complete"><span>✓</span><h2>Отличная работа</h2><p>Вы завершили ${lesson.total_units} уроков. Назначенные самостоятельные работы остаются в отдельном разделе.</p><div class="complete-actions"><button class="secondary-button" data-go="roadmap">Посмотреть роадмап</button><button class="primary-button" data-go="homework">Домашние задания →</button></div></section>`;
     bindGoButtons();
     return;
   }
 
   const currentStep = lesson.current_step;
-  const isTheory = currentStep === "theory";
-  const task = currentStep === "homework" ? lesson.homework_task : lesson.practice_task;
+  const reviewingTheory = currentStep === "practice" && state.lessonView === "theory";
+  const isTheory = currentStep === "theory" || reviewingTheory;
+  const task = lesson.practice_task;
   const stepContent = isTheory ? `<article class="lesson-panel lesson-theory">
+      ${reviewingTheory ? '<div class="review-theory-banner"><b>Повторение теории</b><span>Прогресс практики сохранён. После повторения вернитесь к текущей задаче.</span></div>' : ""}
       <p class="eyebrow">${lesson.theory.eyebrow}</p>
       <h2>${lesson.theory.title}</h2>
       <p class="lesson-summary">${lesson.theory.summary}</p>
-      <ul class="formula-list">${lesson.theory.key_points.map((point) => `<li>${point}</li>`).join("")}</ul>
+      ${renderLessonTheory(lesson.theory)}
       <aside class="theory-tip"><b>Совет перед практикой</b>${lesson.theory.tip}</aside>
-      <div class="lesson-action"><span>${lesson.theory.read_minutes} минут на изучение</span><button class="primary-button" id="complete-theory">Теория изучена →</button></div>
-    </article>` : `<article class="lesson-panel lesson-task ${currentStep === "homework" ? "homework" : ""}">
-      ${currentStep === "homework" ? '<div class="homework-banner"><b>Домашнее задание</b><span>Закрепите теорию самостоятельно. Следующая тема откроется после верного ответа.</span></div>' : '<div class="practice-banner"><b>Практика по теории</b><span>Примените только что изученные правила.</span></div>'}
-      <div class="task-meta"><span class="tag accent">Задание ${task.exam_number}</span><span class="tag">${difficultyLabel(task.difficulty)}</span><span class="tag">Код ${task.codifier_code}</span></div>
+      <div class="lesson-action"><span>${reviewingTheory ? `Выполнено ${lesson.practice.attempted_tasks} из ${lesson.practice.total_tasks} задач` : `${lesson.theory.read_minutes} минут на изучение`}</span><button class="primary-button" id="${reviewingTheory ? "return-to-practice" : "complete-theory"}">${reviewingTheory ? "Вернуться к практике →" : "Теория изучена →"}</button></div>
+    </article>` : `<article class="lesson-panel lesson-task">
+      <div class="practice-banner"><b>Практика: ${escapeHtml(lesson.topic.short_title)}</b><span>Все ${lesson.practice.total_tasks} заданий проверяют только теорию этого урока.</span></div>
+      <div class="practice-toolbar"><div><span>Задача ${lesson.practice.current_task_number} из ${lesson.practice.total_tasks}</span><i><b style="width:${lesson.practice.attempted_tasks / lesson.practice.total_tasks * 100}%"></b></i></div><button class="secondary-button" id="review-theory">← Вернуться к теории</button></div>
+      <div class="task-meta"><span class="tag accent">Задание ${task.exam_number}</span><span class="tag">${difficultyLabel(task.difficulty)}</span><span class="tag">Код ${task.codifier_code}</span><span class="tag topic-tag">Тема: ${escapeHtml(lesson.topic.short_title)}</span></div>
       <h2>${task.title}</h2><p class="task-prompt">${task.prompt}</p>
       <form class="answer-block" id="lesson-answer-form"><label for="lesson-answer">Ваш ответ</label><div class="answer-row">
         <input id="lesson-answer" name="answer" autocomplete="off" placeholder="Введите ответ" required>
         <button class="primary-button" type="submit">Проверить</button></div></form>
       <div id="feedback-slot"></div>
-      <p class="task-source">${task.source.label} · формулировка адаптирована для учебного прототипа</p>
+      <p class="task-source">Источник типа: <a href="${escapeHtml(task.source.url)}" target="_blank" rel="noreferrer">${escapeHtml(task.source.label)}</a> · условие адаптировано и не копирует оригинал дословно</p>
     </article>`;
 
-  view.innerHTML = `${pageHeader("Занятия по roadmap", lesson.topic.short_title, `${lesson.stage.number}-й этап · ${lesson.stage.title}`,
-    '<button class="secondary-button" data-go="roadmap">Посмотреть маршрут</button>')}
+  view.innerHTML = `${pageHeader("Уроки по роадмапу", lesson.topic.short_title, `${lesson.stage.number}-й этап · ${lesson.stage.title}`,
+    '<button class="secondary-button" data-go="roadmap">Посмотреть роадмап</button>')}
     <section class="lesson-shell">
       <div class="lesson-context"><span>Тема ${lesson.position} из ${lesson.total_units}</span><b>${lesson.topic.title}</b><small>${lesson.topic.description}</small></div>
       <div class="lesson-progress"><i style="width:${lesson.overall_progress}%"></i></div>
-      <ol class="lesson-stepper">${lesson.steps.map((step, index) => `<li class="lesson-step ${step.state}"><span>${step.state === "completed" ? "✓" : index + 1}</span><div><b>${step.label}</b><small>${step.state === "current" ? "Текущий шаг" : step.state === "completed" ? "Готово" : "Сначала предыдущий шаг"}</small></div></li>`).join("")}</ol>
-      <div class="lesson-current-label"><span>Сейчас</span><b>${lessonStepTitle(currentStep)}</b></div>
+      <ol class="lesson-stepper two-steps">${lesson.steps.map((step, index) => `<li class="lesson-step ${step.state}"><span>${step.state === "completed" ? "✓" : index + 1}</span><div><b>${step.label}</b><small>${step.state === "current" ? "Текущий шаг" : step.state === "completed" ? "Готово" : "Сначала предыдущий шаг"}</small></div></li>`).join("")}</ol>
+      <div class="lesson-current-label"><span>${reviewingTheory ? "Можно вернуться" : "Сейчас"}</span><b>${reviewingTheory ? "Повторение теории" : lessonStepTitle(currentStep)}</b></div>
       ${stepContent}
     </section>`;
   bindGoButtons();
-  if (isTheory) document.querySelector("#complete-theory").addEventListener("click", completeCurrentTheory);
-  else document.querySelector("#lesson-answer-form").addEventListener("submit", submitLessonAnswer);
+  if (currentStep === "theory") {
+    document.querySelector("#complete-theory").addEventListener("click", completeCurrentTheory);
+  } else if (reviewingTheory) {
+    document.querySelector("#return-to-practice").addEventListener("click", returnToPractice);
+  } else {
+    document.querySelector("#review-theory").addEventListener("click", reviewCurrentTheory);
+    document.querySelector("#lesson-answer-form").addEventListener("submit", submitLessonAnswer);
+  }
+}
+
+function renderHomework() {
+  const homework = state.homework;
+  if (homework.status !== "active") {
+    view.innerHTML = `${pageHeader("Домашние задания", "Самостоятельная работа", "Домашние задания назначаются после практики, но не решаются внутри урока.", '<button class="secondary-button" data-go="lessons">Перейти к урокам</button>')}
+      <section class="homework-empty"><span>✓</span><h2>Все задания выполнены</h2><p>${escapeHtml(homework.message)}</p><button class="primary-button" data-go="dashboard">Вернуться на главную</button></section>`;
+    bindGoButtons();
+    return;
+  }
+  const task = homework.task;
+  view.innerHTML = `${pageHeader("Домашние задания", homework.topic.short_title, `Сдать до ${formatDate(homework.due_date)} · задача ${homework.current_task_number} из ${homework.total_tasks}`, '<button class="secondary-button" data-go="lessons">К урокам</button>')}
+    <section class="homework-shell">
+      <aside class="homework-separation-note"><span>ДЗ</span><div><b>Решите самостоятельно</b><p>Здесь нет конспекта и учебной практики рядом. Если нужна теория, вернитесь к урокам отдельно, а затем снова откройте ДЗ.</p></div></aside>
+      <article class="lesson-panel lesson-task homework-workspace">
+        <div class="homework-banner"><b>Домашнее задание · ${homework.total_tasks} задач</b><span>Самостоятельно · после урока «${escapeHtml(homework.topic.short_title)}»</span></div>
+        <div class="practice-toolbar homework-progress"><div><span>Задача ${homework.current_task_number} из ${homework.total_tasks}</span><i><b style="width:${homework.attempted_tasks / homework.total_tasks * 100}%"></b></i></div><small>Осталось: ${homework.remaining_tasks}</small></div>
+        <div class="task-meta"><span class="tag accent">Задание ${task.exam_number}</span><span class="tag">${difficultyLabel(task.difficulty)}</span><span class="tag">Код ${task.codifier_code}</span></div>
+        <h2>${escapeHtml(task.title)}</h2><p class="task-prompt">${escapeHtml(task.prompt)}</p>
+        <form class="answer-block" id="homework-answer-form"><label for="homework-answer">Ваш ответ</label><div class="answer-row">
+          <input id="homework-answer" name="answer" autocomplete="off" placeholder="Введите ответ" required>
+          <button class="primary-button" type="submit">Сдать работу</button></div></form>
+        <div id="feedback-slot"></div>
+        <p class="task-source">Источник типа: <a href="${escapeHtml(task.source.url)}" target="_blank" rel="noreferrer">${escapeHtml(task.source.label)}</a> · условие адаптировано и не копирует оригинал дословно</p>
+      </article>
+    </section>`;
+  bindGoButtons();
+  document.querySelector("#homework-answer-form").addEventListener("submit", submitHomeworkAnswer);
 }
 
 async function refreshLearningData() {
-  const [analytics, roadmap, admin, adminUsers] = await Promise.all([
+  const [analytics, roadmap, lesson, homework, dashboard, admin, adminUsers] = await Promise.all([
     request(`/analytics?session_id=${sessionId}`), request(`/roadmap?session_id=${sessionId}`),
+    request(`/lesson/current?session_id=${sessionId}`),
+    request(`/homework/current?session_id=${sessionId}`),
+    request(`/dashboard?session_id=${sessionId}`),
     request("/admin/dashboard"), request("/admin/users"),
   ]);
-  Object.assign(state, { analytics, roadmap, admin, adminUsers });
+  Object.assign(state, { analytics, roadmap, lesson, homework, dashboard, admin, adminUsers });
+  updateHomeworkBadge();
+}
+
+function reviewCurrentTheory() {
+  state.lessonView = "theory";
+  renderLessons();
+}
+
+function returnToPractice() {
+  state.lessonView = null;
+  renderLessons();
 }
 
 async function completeCurrentTheory() {
@@ -246,7 +390,8 @@ async function completeCurrentTheory() {
       method: "POST",
       body: JSON.stringify({ session_id: sessionId, lesson_unit_id: state.lesson.unit_id }),
     });
-    state.roadmap = await request(`/roadmap?session_id=${sessionId}`);
+    await refreshLearningData();
+    state.lessonView = null;
     renderLessons();
     toast("Теория пройдена. Открыта практика.");
   } catch (error) {
@@ -261,8 +406,11 @@ async function submitLessonAnswer(event) {
   const form = event.currentTarget;
   const button = form.querySelector("button");
   const answer = new FormData(form).get("answer");
-  const mode = state.lesson.current_step;
-  const task = mode === "homework" ? state.lesson.homework_task : state.lesson.practice_task;
+  const mode = "practice";
+  const task = state.lesson.practice_task;
+  const practiceTopic = state.lesson.topic.short_title;
+  const practiceNumber = state.lesson.practice.current_task_number;
+  const practiceTotal = state.lesson.practice.total_tasks;
   button.disabled = true;
   button.textContent = "Проверяем…";
   try {
@@ -275,26 +423,78 @@ async function submitLessonAnswer(event) {
         duration_seconds: 90,
         mode,
         lesson_unit_id: state.lesson.unit_id,
+        lesson_task_key: task.lesson_task_key,
       }),
     });
     state.lesson = result.lesson;
+    state.homework = result.homework;
     await refreshLearningData();
-    const nextLabel = mode === "practice" ? "Перейти к ДЗ" : state.lesson.status === "completed" ? "Посмотреть результат" : "Следующая тема";
+    state.lessonView = null;
+    const correctTitle = result.lesson_unit_complete
+      ? `Практика «${escapeHtml(practiceTopic)}» завершена`
+      : `Верно — задача ${practiceNumber} из ${practiceTotal}`;
+    const incorrectTitle = `Неверно — задача ${practiceNumber} из ${practiceTotal} завершена`;
     document.querySelector("#feedback-slot").innerHTML = `<div class="feedback ${result.is_correct ? "correct" : "incorrect"}">
-      <b>${result.is_correct ? "Верно — шаг завершён" : `Пока не так. Верный ответ: ${result.correct_answer}`}</b>
-      ${result.explanation}<br><span style="opacity:.78">${result.recommendation}</span>
-      ${result.is_correct ? `<div class="feedback-action"><button class="primary-button" id="lesson-next">${nextLabel} →</button></div>` : ""}
+      <b>${result.is_correct ? correctTitle : incorrectTitle}</b>
+      ${result.is_correct ? "" : `Верный ответ: ${escapeHtml(result.correct_answer)}.<br>`}${result.explanation}<br><span style="opacity:.78">${result.recommendation}</span>
+      <div class="feedback-action"><button class="primary-button" id="lesson-next">${result.lesson_unit_complete ? "Следующий урок" : `Следующая задача по теме «${escapeHtml(practiceTopic)}»`} →</button>${result.lesson_unit_complete ? '<button class="secondary-button" id="lesson-homework">Открыть ДЗ отдельно</button>' : ""}</div>
     </div>`;
-    if (result.is_correct) {
-      form.classList.add("hidden");
-      document.querySelector("#lesson-next").addEventListener("click", renderLessons);
-    }
+    form.classList.add("hidden");
+    document.querySelector("#lesson-next").addEventListener("click", renderLessons);
+    document.querySelector("#lesson-homework")?.addEventListener("click", () => goTo("homework"));
   } catch (error) {
     toast(error.message);
   } finally {
     if (!form.classList.contains("hidden")) {
       button.disabled = false;
       button.textContent = "Проверить";
+    }
+  }
+}
+
+async function submitHomeworkAnswer(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
+  const answer = new FormData(form).get("answer");
+  const assignment = state.homework;
+  const homeworkNumber = assignment.current_task_number;
+  const homeworkTotal = assignment.total_tasks;
+  button.disabled = true;
+  button.textContent = "Проверяем…";
+  try {
+    const result = await request("/attempts", {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: sessionId,
+        task_id: assignment.task.id,
+        answer,
+        duration_seconds: 120,
+        mode: "homework",
+        lesson_unit_id: assignment.unit_id,
+        lesson_task_key: assignment.task.lesson_task_key,
+      }),
+    });
+    await refreshLearningData();
+    const title = result.is_correct
+      ? result.homework_unit_complete ? "Домашняя работа завершена" : `Верно — задача ${homeworkNumber} из ${homeworkTotal}`
+      : `Неверно — задача ${homeworkNumber} из ${homeworkTotal} завершена`;
+    document.querySelector("#feedback-slot").innerHTML = `<div class="feedback ${result.is_correct ? "correct" : "incorrect"}">
+      <b>${title}</b>
+      ${result.is_correct ? "" : `Верный ответ: ${escapeHtml(result.correct_answer)}.<br>`}${escapeHtml(result.explanation)}<br><span style="opacity:.78">${escapeHtml(result.recommendation)}</span>
+      <div class="feedback-action"><button class="primary-button" id="homework-next">${result.homework_unit_complete ? "Готово" : "Следующая задача"} →</button></div>
+    </div>`;
+    form.classList.add("hidden");
+    document.querySelector("#homework-next").addEventListener("click", () => {
+      if (state.homework.status === "active") renderHomework();
+      else goTo("dashboard");
+    });
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    if (!form.classList.contains("hidden")) {
+      button.disabled = false;
+      button.textContent = "Сдать работу";
     }
   }
 }
@@ -389,35 +589,38 @@ function renderTheory() {
   bindContentLinks();
 }
 
-function renderHistory(history) {
-  if (!history.length) return `<div class="empty-state">График появится после первого решённого задания.</div>`;
+function renderPredictionHistory(history, maxScore) {
+  if (!history.length) return `<div class="prediction-history-empty"><b>График появится после полной диагностики</b><p>Сначала нужен хотя бы один реальный ответ по каждому из 19 типов заданий. До этого тестовый балл не подставляется.</p><span>Покрытие: ${state.analytics.prediction.covered_task_types} из ${state.analytics.prediction.required_task_types}</span></div>`;
   const step = history.length === 1 ? 0 : 504 / (history.length - 1);
-  const points = history.map((item, index) => `${28 + index * step},${218 - item.score * 1.72}`).join(" ");
-  const areaPoints = `28,218 ${points} ${28 + (history.length - 1) * step},218`;
-  return `<svg class="forecast-chart" viewBox="0 0 560 235" role="img" aria-label="Динамика фактической точности">
-      ${[46,89,132,175,218].map((y) => `<line class="grid" x1="28" y1="${y}" x2="532" y2="${y}"></line>`).join("")}
+  const x = (index) => history.length === 1 ? 280 : 28 + index * step;
+  const y = (score) => 218 - score / maxScore * 172;
+  const points = history.map((item, index) => `${x(index)},${y(item.score)}`).join(" ");
+  const areaPoints = `${x(0)},218 ${points} ${x(history.length - 1)},218`;
+  const gridScores = [0, 25, 50, 75, 100];
+  return `<svg class="forecast-chart score-history-chart" viewBox="0 0 560 235" role="img" aria-label="Динамика ожидаемого вторичного балла ЕГЭ">
+      ${gridScores.map((score) => `<line class="grid" x1="28" y1="${y(score)}" x2="532" y2="${y(score)}"></line><text x="2" y="${y(score) + 4}">${score}</text>`).join("")}
       <polygon class="area" points="${areaPoints}"></polygon><polyline class="line" points="${points}"></polyline>
-      ${history.map((item, index) => `<circle class="dot" cx="${28 + index * step}" cy="${218 - item.score * 1.72}" r="5"></circle>`).join("")}
-    </svg><div class="chart-labels">${history.map((item) => `<span>${item.label}<br><b>${item.score}%</b></span>`).join("")}</div>`;
+      ${history.map((item, index) => `<circle class="dot" cx="${x(index)}" cy="${y(item.score)}" r="5"></circle>`).join("")}
+    </svg><div class="chart-labels score-chart-labels">${history.map((item) => `<span>${item.label}<br><b>${item.score} / ${item.max_score}</b></span>`).join("")}</div>`;
 }
 
 function renderAnalytics() {
   const data = state.analytics;
   const prediction = data.prediction;
-  view.innerHTML = `${pageHeader("Результаты", "Аналитика по вашим ответам", "Никаких стартовых процентов: только попытки, точность, ошибки и покрытие типов заданий.")}
+  view.innerHTML = `${pageHeader("Результаты", "Аналитика по вашим ответам", "Только реальные попытки, ошибки, покрытие типов заданий и ожидаемый вторичный балл ЕГЭ.")}
     <div class="analytics-grid">
       <article class="metric-card"><small>Попыток</small><b>${data.summary.attempts}</b></article>
-      <article class="metric-card"><small>Точность</small><b>${percent(data.summary.accuracy)}</b></article>
+      <article class="metric-card"><small>Верных ответов</small><b>${data.summary.correct}<span class="metric-suffix"> / ${data.summary.attempts}</span></b></article>
       <article class="metric-card"><small>Типов пройдено</small><b>${prediction.covered_task_types}<span class="metric-suffix"> / ${prediction.required_task_types}</span></b></article>
-      <article class="metric-card"><small>Результат диагностики</small><b>${prediction.available ? prediction.predicted_primary_score : "—"}<span class="metric-suffix"> / 32</span></b></article>
+      <article class="metric-card"><small>Ожидаемый балл ЕГЭ</small><b>${prediction.available ? prediction.predicted_test_score : "—"}<span class="metric-suffix"> / ${prediction.max_test_score}</span></b></article>
 
-      <section class="panel chart-panel"><div class="section-heading"><div><h2>Динамика точности</h2><p>Накопительная точность после каждой реальной попытки</p></div><span class="model-badge">фактические ответы</span></div>
-        ${renderHistory(data.history)}
+      <section class="panel chart-panel"><div class="section-heading"><div><h2>Динамика ожидаемого балла</h2><p>Последний реальный ответ по каждому из 19 типов · вторичная шкала ЕГЭ-2026</p></div><span class="model-badge">без фиктивных данных</span></div>
+        ${renderPredictionHistory(data.prediction_history, data.prediction.max_test_score)}
       </section>
       <section class="panel weak-panel"><div class="section-heading"><div><h2>Зоны внимания</h2><p>Только темы, где уже были ошибки</p></div></div>
-        <div class="weak-list">${data.weak_topics.length ? data.weak_topics.map((item) => `<article class="weak-item"><div><b>${item.short_title}</b><span>${percent(item.mastery)}</span></div><p>Точность ${item.accuracy}% на ${item.attempts} попытках</p><span class="content-links"><a href="${item.theory_href}" data-open-theory="${item.theory_id}">Теория</a><a href="${item.practice_href}" data-open-task="${state.tasks.find((task) => task.topic_id === item.topic_id).id}">Практика</a></span></article>`).join("") : `<div class="empty-state compact">${data.summary.attempts ? "Тем с ошибками пока нет." : "Сначала решите несколько заданий."}</div>`}</div>
+        <div class="weak-list">${data.weak_topics.length ? data.weak_topics.map((item) => `<article class="weak-item"><div><b>${item.short_title}</b><span>${percent(item.mastery)}</span></div><p>${item.correct} верно из ${item.attempts}</p><span class="content-links"><a href="${item.theory_href}" data-open-theory="${item.theory_id}">Теория</a><a href="${item.practice_href}" data-open-task="${state.tasks.find((task) => task.topic_id === item.topic_id).id}">Практика</a></span></article>`).join("") : `<div class="empty-state compact">${data.summary.attempts ? "Тем с ошибками пока нет." : "Сначала решите несколько заданий."}</div>`}</div>
       </section>
-      <section class="panel mastery-panel"><div class="section-heading"><div><h2>Результаты по темам</h2><p>Точность без сглаживания и стартовых значений</p></div></div>
+      <section class="panel mastery-panel"><div class="section-heading"><div><h2>Результаты по темам</h2><p>Доля верных ответов без сглаживания и стартовых значений</p></div></div>
         <div class="mastery-list">${data.topics.map((item) => `<div class="mastery-item" style="--topic-color:${item.accent}"><div><b>${item.short_title}</b><span>${percent(item.mastery)} · ${item.attempts} попыток</span></div><div class="mini-track"><i style="width:${item.mastery ?? 0}%;background:${item.accent}"></i></div><span class="content-links"><a href="${item.theory_href}" data-open-theory="${item.theory_id}">Теория</a><a href="${item.practice_href}" data-open-task="${state.tasks.find((task) => task.topic_id === item.topic_id).id}">Практика</a></span></div>`).join("")}</div>
       </section>
       <section class="panel plan-panel"><div class="section-heading"><div><h2>Индивидуальный план</h2><p>Повторение только подтверждённых ошибок</p></div></div>
@@ -501,6 +704,13 @@ function openTheory(theoryId) {
   requestAnimationFrame(() => document.querySelector(`#theory-${CSS.escape(theoryId)}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
 }
 
+function updateHomeworkBadge() {
+  const badge = document.querySelector("#homework-badge");
+  const count = state.homework?.status === "active" ? state.homework.pending_count : 0;
+  badge.textContent = count;
+  badge.classList.toggle("hidden", !count);
+}
+
 function setActiveNav() {
   document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.page === state.page));
 }
@@ -519,7 +729,7 @@ function goTo(page) {
 function render() {
   const pages = {
     dashboard: renderDashboard, roadmap: renderRoadmap, lessons: renderLessons,
-    analytics: renderAnalytics, admin: renderAdmin,
+    homework: renderHomework, analytics: renderAnalytics, admin: renderAdmin,
   };
   (pages[state.page] || renderDashboard)();
 }
@@ -528,9 +738,9 @@ function toggleRole() {
   state.role = state.role === "student" ? "admin" : "student";
   const isAdmin = state.role === "admin";
   document.querySelectorAll(".admin-only").forEach((item) => item.classList.toggle("hidden", !isAdmin));
-  document.querySelector("#role-name").textContent = isAdmin ? "Мария" : "Алексей";
-  document.querySelector("#role-label").textContent = isAdmin ? "Администратор контента" : "Ученик · 11 класс";
-  document.querySelector(".avatar").textContent = isAdmin ? "МВ" : "АК";
+  document.querySelector("#role-name").textContent = isAdmin ? "Администратор" : "Ученик";
+  document.querySelector("#role-label").textContent = isAdmin ? "Режим управления" : "Текущая сессия";
+  document.querySelector(".avatar").textContent = isAdmin ? "АД" : "УЧ";
   goTo(isAdmin ? "admin" : "dashboard");
   toast(isAdmin ? "Включён интерфейс администратора" : "Возвращаемся в кабинет ученика");
 }
@@ -540,8 +750,9 @@ document.querySelector("#role-switch").addEventListener("click", toggleRole);
 document.querySelector("#mobile-menu").addEventListener("click", () => sidebar.classList.toggle("open"));
 
 loadData().then(() => {
+  updateHomeworkBadge();
   const hash = window.location.hash.slice(1);
-  if (["roadmap", "lessons", "analytics", "admin"].includes(hash)) goTo(hash);
+  if (["roadmap", "lessons", "homework", "analytics", "admin"].includes(hash)) goTo(hash);
   else if (hash.startsWith("practice-") || hash.startsWith("theory-")) goTo("lessons");
   else render();
 }).catch((error) => {

@@ -167,6 +167,14 @@ def test_roadmap_is_ordered_from_basic_to_expert(client: TestClient) -> None:
     assert stages[-1]["difficulty"] == "expert"
     assert stages[0]["topics"][0]["id"] == "vectors"
     assert stages[0]["topics"][0]["lesson_state"] == "current"
+    assert stages[0]["topics"][0]["progress"] == 0
+    assert [item["id"] for item in stages[0]["topics"][0]["subtopics"]] == [
+        "vector-coordinates",
+        "vector-operations",
+        "vector-length",
+        "scalar-product",
+    ]
+    assert all(item["progress"] == 0 for item in stages[0]["topics"][0]["subtopics"])
     assert stages[0]["topics"][1]["lesson_state"] == "locked"
     task_numbers = [number for stage in stages for number in stage["task_numbers"]]
     assert sorted(task_numbers) == list(range(1, 20))
@@ -206,6 +214,8 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
 
     assert lesson["topic"]["id"] == "vectors"
     assert lesson["current_step"] == "theory"
+    assert lesson["progress"] == 0
+    assert len(lesson["subtopics"]) == 4
     assert [step["state"] for step in lesson["steps"]] == ["current", "locked"]
     assert lesson["practice_task"]["id"] == "math-02"
     assert lesson["homework_task"]["id"] == "math-02"
@@ -233,6 +243,8 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
         json={"session_id": "lesson-student", "lesson_unit_id": lesson["unit_id"]},
     ).json()["data"]
     assert after_theory["current_step"] == "practice"
+    assert after_theory["progress"] == 50
+    assert all(item["progress"] == 50 for item in after_theory["subtopics"])
     assert after_theory["practice"] == {
         "attempted_tasks": 0,
         "correct_tasks": 0,
@@ -260,6 +272,12 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
     assert first_result["lesson"]["practice"]["attempted_tasks"] == 1
     assert first_result["lesson"]["practice"]["correct_tasks"] == 0
     assert first_result["lesson"]["practice"]["current_task_number"] == 2
+    assert first_result["lesson"]["progress"] == 53
+    subtopics_after_first = {
+        item["id"]: item for item in first_result["lesson"]["subtopics"]
+    }
+    assert subtopics_after_first["vector-length"]["progress"] == 58
+    assert subtopics_after_first["vector-coordinates"]["progress"] == 50
 
     repeated = client.post(
         "/api/v1/exam/math-profile/attempts",
@@ -432,6 +450,11 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
         params={"session_id": "lesson-student"},
     ).json()["data"]
     assert roadmap["stages"][0]["topics"][0]["lesson_state"] == "completed"
+    assert roadmap["stages"][0]["topics"][0]["progress"] == 100
+    assert all(
+        item["progress"] == 100
+        for item in roadmap["stages"][0]["topics"][0]["subtopics"]
+    )
     assert roadmap["stages"][0]["topics"][1]["lesson_state"] == "current"
 
 
@@ -451,8 +474,11 @@ def test_dashboard_contains_today_schedule_roadmap_score_and_streak(client: Test
         "streak_days": 0,
     }
     assert dashboard["today"]["lesson"]["title"] == "Векторы"
+    assert dashboard["today"]["lesson"]["progress"] == 0
+    assert len(dashboard["today"]["lesson"]["subtopics"]) == 4
     assert dashboard["today"]["homework"] is None
     assert dashboard["schedule"][0]["kind"] == "lesson"
+    assert dashboard["schedule"][0]["progress"] == 0
     assert dashboard["roadmap"]["next_lessons"][0]["topic"]["id"] == "vectors"
 
 

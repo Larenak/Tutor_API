@@ -19,6 +19,10 @@ const state = {
   practiceFilter: "all",
   focusTheory: null,
   lessonView: null,
+  lessonTheoryPage: 0,
+  lessonTheoryUnitId: null,
+  dashboardSelectedDate: null,
+  dashboardCalendarMonth: null,
 };
 
 const view = document.querySelector("#view");
@@ -46,6 +50,8 @@ async function loadData() {
       request("/admin/users"), request("/admin/tasks"),
     ]);
   Object.assign(state, { overview, tasks, theory, analytics, roadmap, lesson, homework, dashboard, admin, adminUsers, adminTasks });
+  state.dashboardSelectedDate ||= dashboard.date;
+  state.dashboardCalendarMonth ||= `${dashboard.date.slice(0, 7)}-01`;
 }
 
 function escapeHtml(value) {
@@ -126,44 +132,130 @@ function renderForecastCard(prediction) {
   </aside>`;
 }
 
+function localDate(value) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day, 12);
+}
+
+function isoDate(year, monthIndex, day) {
+  const date = new Date(year, monthIndex, day, 12);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function shiftCalendarMonth(value, offset) {
+  const date = localDate(value);
+  return isoDate(date.getFullYear(), date.getMonth() + offset, 1);
+}
+
+function formatCalendarMonth(value) {
+  return new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric" }).format(localDate(value));
+}
+
+function renderRoadmapSubtopics(subtopics, compact = false) {
+  return `<div class="roadmap-subtopics ${compact ? "compact" : ""}">${subtopics.map((subtopic) => `
+    <div class="roadmap-subtopic ${subtopic.state}">
+      <div><span>${String(subtopic.order).padStart(2, "0")}</span><b>${escapeHtml(subtopic.title)}</b><strong>${subtopic.progress}%</strong></div>
+      <i role="progressbar" aria-label="${escapeHtml(subtopic.title)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${subtopic.progress}"><b style="width:${subtopic.progress}%"></b></i>
+    </div>`).join("")}</div>`;
+}
+
+function renderDashboardCalendar(data) {
+  const monthDate = localDate(state.dashboardCalendarMonth);
+  const firstOffset = (new Date(monthDate.getFullYear(), monthDate.getMonth(), 1, 12).getDay() + 6) % 7;
+  const daysInMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0, 12).getDate();
+  const planDates = new Set(data.schedule.map((item) => item.date));
+  planDates.add(data.date);
+  const cells = [
+    ...Array.from({ length: firstOffset }, () => '<span class="calendar-day empty" aria-hidden="true"></span>'),
+    ...Array.from({ length: daysInMonth }, (_, index) => {
+      const day = index + 1;
+      const value = isoDate(monthDate.getFullYear(), monthDate.getMonth(), day);
+      const classes = [
+        "calendar-day",
+        value === data.date ? "today" : "",
+        value === state.dashboardSelectedDate ? "selected" : "",
+        planDates.has(value) ? "has-plan" : "",
+      ].filter(Boolean).join(" ");
+      return `<button class="${classes}" data-calendar-date="${value}" aria-pressed="${value === state.dashboardSelectedDate}" aria-label="${formatLongDate(value)}"><span>${day}</span>${planDates.has(value) ? "<i></i>" : ""}</button>`;
+    }),
+  ];
+  return `<div class="calendar-card">
+    <div class="calendar-toolbar"><button class="calendar-arrow" data-calendar-shift="-1" aria-label="Предыдущий месяц">←</button><b>${formatCalendarMonth(state.dashboardCalendarMonth)}</b><button class="calendar-arrow" data-calendar-shift="1" aria-label="Следующий месяц">→</button></div>
+    <div class="calendar-weekdays">${["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((day) => `<span>${day}</span>`).join("")}</div>
+    <div class="calendar-grid">${cells.join("")}</div>
+  </div>`;
+}
+
+function renderLessonPlanCard(lesson) {
+  if (!lesson) return `<article class="day-plan-card empty"><span class="agenda-kind">Урок</span><h3>Курс пройден</h3><p>Все уроки текущего роадмапа завершены.</p><button class="secondary-button" data-go="roadmap">Посмотреть роадмап</button></article>`;
+  return `<article class="day-plan-card lesson">
+    <div class="day-plan-card-top"><span class="agenda-kind">Текущий урок</span><span>${lesson.estimated_minutes} мин</span></div>
+    <h3>${escapeHtml(lesson.title)}</h3><p>${escapeHtml(lesson.description)}</p>
+    <div class="lesson-progress"><div><span>Прогресс урока</span><b>${lesson.progress}%</b></div><i role="progressbar" aria-label="Прогресс урока ${escapeHtml(lesson.title)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${lesson.progress}"><b style="width:${lesson.progress}%"></b></i></div>
+    <div class="day-plan-card-footer"><span>${escapeHtml(lesson.step_label)} · до 100%</span><button class="primary-button" data-go="lessons">Продолжить урок →</button></div>
+  </article>`;
+}
+
+function renderTodayPlan(data) {
+  const homework = data.today.homework;
+  const homeworkCard = homework
+    ? `<article class="day-plan-card homework"><div class="day-plan-card-top"><span class="agenda-kind">Домашнее задание</span><span>до ${formatDate(homework.due_date)}</span></div><h3>${escapeHtml(homework.title)}</h3><p>${escapeHtml(homework.description)}</p><div class="lesson-progress"><div><span>Выполнено</span><b>${homework.progress}%</b></div><i role="progressbar" aria-label="Прогресс домашнего задания" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${homework.progress}"><b style="width:${homework.progress}%"></b></i></div><div class="day-plan-card-footer"><span>${homework.estimated_minutes} мин самостоятельно</span><button class="secondary-button" data-go="homework">Открыть ДЗ →</button></div></article>`
+    : `<article class="day-plan-card homework empty"><span class="agenda-kind">Домашнее задание</span><h3>Пока не назначено</h3><p>Появится после практики и будет выполняться отдельно от урока.</p><button class="secondary-button" data-go="homework">Раздел ДЗ</button></article>`;
+  const reviews = data.today.reviews.map((item) => `<article class="agenda-row review"><span>Повторение</span><div><b>${escapeHtml(item.title)}</b><small>${escapeHtml(item.action)}</small></div><button class="schedule-arrow" data-go="lessons" aria-label="Открыть повторение">→</button></article>`).join("");
+  return `<div class="day-plan-cards">${renderLessonPlanCard(data.today.lesson)}${homeworkCard}${reviews}</div>`;
+}
+
+function renderScheduledPlan(data, selectedDate) {
+  const labels = { lesson: "Урок", homework: "Домашнее задание", review: "Повторение" };
+  const items = data.schedule.filter((item) => item.date === selectedDate);
+  if (!items.length) return '<div class="selected-day-empty"><span>Свободный день</span><p>На эту дату в текущем роадмапе ничего не запланировано.</p></div>';
+  return `<div class="agenda-list">${items.map((item) => `<article class="agenda-row ${item.kind}"><span>${labels[item.kind]}</span><div><b>${escapeHtml(item.title)}</b><small>${escapeHtml(item.detail)}</small>${Number.isInteger(item.progress) ? `<i><b style="width:${item.progress}%"></b></i>` : ""}</div><button class="schedule-arrow" data-go="${item.kind === "homework" ? "homework" : "lessons"}" aria-label="Открыть ${labels[item.kind].toLowerCase()}">→</button></article>`).join("")}</div>`;
+}
+
 function renderDashboard() {
   const data = state.dashboard;
   const metrics = data.metrics;
-  const lesson = data.today.lesson;
-  const homework = data.today.homework;
-  const scheduleLabels = { lesson: "Урок", homework: "ДЗ", review: "Повторение" };
+  const selectedDate = state.dashboardSelectedDate || data.date;
+  const isToday = selectedDate === data.date;
   const score = metrics.prediction_available ? metrics.expected_test_score : "—";
-  view.innerHTML = `
-    <header class="dashboard-welcome">
-      <div><p class="eyebrow">${formatLongDate(data.date)}</p><h1>План на сегодня</h1><p>Уроки, самостоятельная работа и повторения собраны из вашего роадмапа.</p></div>
-    </header>
+  view.innerHTML = `${pageHeader("Главная", "Учебный маршрут", "Расписание, текущий урок и следующие подтемы вашего адаптивного курса.")}
+    <section class="section dashboard-calendar-section">
+      <div class="section-heading"><div><h2>Расписание</h2><p>Выберите день — справа появится только его учебный план</p></div>${isToday ? "" : '<button class="text-button" data-calendar-today>Вернуться к сегодня</button>'}</div>
+      <div class="calendar-layout">${renderDashboardCalendar(data)}
+        <div class="selected-day-plan"><div class="selected-day-heading"><div><span>${isToday ? "Сегодня" : "Выбранный день"}</span><h3>${formatLongDate(selectedDate)}</h3></div><small>${isToday ? "Текущий урок и самостоятельная работа" : "План по роадмапу"}</small></div>
+          ${isToday ? renderTodayPlan(data) : renderScheduledPlan(data, selectedDate)}
+        </div>
+      </div>
+      <p class="schedule-note">${escapeHtml(data.schedule_note)}</p>
+    </section>
 
     <section class="dashboard-overview" aria-label="Общие сведения об обучении">
-      <div class="overview-heading"><span>Общие сведения</span><b>Ваш прогресс вне плана на сегодня</b><p>Показатели обновляются по результатам всех занятий.</p></div>
+      <div class="overview-heading"><span>Общие сведения</span><b>Ваш учебный прогресс</b><p>Показатели считаются только по выполненным заданиям.</p></div>
       <article><span>Ожидаемый балл ЕГЭ</span><b>${score}<small> / ${metrics.max_test_score}</small></b><p>${metrics.prediction_available ? "вторичный · по реальным ответам" : "после 19 типов заданий"}</p></article>
-      <article><span>Серия занятий</span><b>${metrics.streak_days}<small> дн.</small></b><p>${metrics.streak_days ? "продолжайте сегодня" : "начните серию сегодня"}</p></article>
+      <article><span class="streak-label">Серия занятий <i class="streak-fire ${metrics.streak_days ? "active" : "inactive"}" aria-label="${metrics.streak_days ? "Огонёк серии горит" : "Огонёк серии потух"}">🔥</i></span><b>${metrics.streak_days}<small> дн.</small></b><p>${metrics.streak_days ? "огонёк горит" : "решите задание, чтобы зажечь"}</p></article>
     </section>
 
-    <section class="section dashboard-section">
-      <div class="section-heading"><div><h2>Сегодня</h2><p>Урок и домашнее задание — два отдельных учебных потока</p></div><button class="text-button" data-go="lessons">Все уроки →</button></div>
-      <div class="today-grid">
-        ${lesson ? `<article class="today-card lesson-today"><div class="today-card-top"><span class="today-kind">Урок</span><span>${lesson.estimated_minutes} мин</span></div><h3>${escapeHtml(lesson.title)}</h3><p>${escapeHtml(lesson.description)}</p><div class="today-card-footer"><span><i></i>${escapeHtml(lesson.step_label)}</span><button class="primary-button" data-go="lessons">Продолжить урок →</button></div></article>` : '<article class="today-card empty-today"><span class="today-kind">Уроки</span><h3>Курс пройден</h3><p>Все уроки текущего роадмапа завершены.</p><button class="secondary-button" data-go="roadmap">Посмотреть роадмап</button></article>'}
-        ${homework ? `<article class="today-card homework-today"><div class="today-card-top"><span class="today-kind">Домашнее задание</span><span>до ${formatDate(homework.due_date)}</span></div><h3>${escapeHtml(homework.title)}</h3><p>${escapeHtml(homework.description)}</p><div class="today-card-footer"><span><i></i>${homework.estimated_minutes} мин самостоятельно</span><button class="secondary-button" data-go="homework">Открыть ДЗ →</button></div></article>` : '<article class="today-card empty-today"><span class="today-kind">Домашнее задание</span><h3>Пока ничего не задано</h3><p>ДЗ появится здесь после практики, но решаться будет отдельно от урока.</p><button class="secondary-button" data-go="homework">Раздел ДЗ</button></article>'}
-      </div>
-    </section>
-
-    <section class="section dashboard-lower">
-      <div class="panel schedule-panel">
-        <div class="section-heading"><div><h2>Расписание</h2><p>Роадмап + интервальные повторения</p></div></div>
-        <div class="schedule-list">${data.schedule.length ? data.schedule.slice(0, 7).map((item) => `<article class="schedule-item ${item.kind}"><time datetime="${item.date}"><b>${formatDate(item.date)}</b><small>${scheduleLabels[item.kind]}</small></time><span><b>${escapeHtml(item.title)}</b><small>${escapeHtml(item.detail)}</small></span><button class="schedule-arrow" data-go="${item.kind === "homework" ? "homework" : "lessons"}" aria-label="Открыть">→</button></article>`).join("") : '<div class="empty-state compact">Расписание заполнится после формирования роадмапа.</div>'}</div>
-        <p class="schedule-note">${escapeHtml(data.schedule_note)}</p>
-      </div>
-      <div class="panel roadmap-preview-panel">
-        <div class="section-heading"><div><h2>Дальше по роадмапу</h2><p>${escapeHtml(data.roadmap.adaptation.message)}</p></div><button class="text-button" data-go="roadmap">Весь план →</button></div>
-        <ol class="roadmap-preview">${data.roadmap.next_lessons.map((item) => `<li class="${item.lesson_state}"><span>${item.position}</span><div><b>${escapeHtml(item.topic.short_title)}</b><small>Задания ${item.task_numbers.map((number) => `№${number}`).join(", ")}</small>${item.is_adapted ? '<em>↑ поднято из-за ошибок</em>' : ""}</div></li>`).join("")}</ol>
+    <section class="section dashboard-roadmap-section">
+      <div class="panel roadmap-preview-panel"><div class="section-heading"><div><h2>Дальше по роадмапу</h2><p>${escapeHtml(data.roadmap.adaptation.message)}</p></div><button class="text-button" data-go="roadmap">Весь план →</button></div>
+        <ol class="roadmap-preview">${data.roadmap.next_lessons.map((item) => `<li class="${item.lesson_state}"><span>${item.position}</span><div class="roadmap-preview-content"><div class="roadmap-preview-title"><b>${escapeHtml(item.topic.short_title)}</b><strong>${item.progress}%</strong></div><small>Задания ${item.task_numbers.map((number) => `№${number}`).join(", ")}</small><div class="unit-progress"><i><b style="width:${item.progress}%"></b></i></div>${renderRoadmapSubtopics(item.subtopics, true)}${item.is_adapted ? '<em>↑ поднято из-за ошибок</em>' : ""}</div></li>`).join("")}</ol>
         <button class="lessons-link" data-go="lessons"><span>▶</span><b>Перейти в раздел с уроками</b><small>Порядок уроков синхронизирован с роадмапом</small><i>→</i></button>
       </div>
     </section>`;
+
+  document.querySelectorAll("[data-calendar-date]").forEach((button) => button.addEventListener("click", () => {
+    state.dashboardSelectedDate = button.dataset.calendarDate;
+    renderDashboard();
+  }));
+  document.querySelectorAll("[data-calendar-shift]").forEach((button) => button.addEventListener("click", () => {
+    state.dashboardCalendarMonth = shiftCalendarMonth(state.dashboardCalendarMonth, Number(button.dataset.calendarShift));
+    state.dashboardSelectedDate = state.dashboardCalendarMonth.slice(0, 7) === data.date.slice(0, 7) ? data.date : state.dashboardCalendarMonth;
+    renderDashboard();
+  }));
+  document.querySelector("[data-calendar-today]")?.addEventListener("click", () => {
+    state.dashboardSelectedDate = data.date;
+    state.dashboardCalendarMonth = `${data.date.slice(0, 7)}-01`;
+    renderDashboard();
+  });
   bindGoButtons();
 }
 
@@ -178,8 +270,8 @@ function renderRoadmap() {
       <div class="section-heading"><div><h2>Порядок тем и заданий</h2><p>Это тот же порядок, который используется в разделе «Уроки»</p></div></div>
       <ol class="course-order">${roadmap.lesson_order.map((item) => `<li class="course-order-item ${item.lesson_state} ${item.is_adapted ? "adapted" : ""}">
         <span class="course-position">${item.lesson_state === "completed" ? "✓" : item.position}</span>
-        <div class="course-order-main"><div class="course-order-title"><span>Этап ${item.stage.number}</span>${item.is_adapted ? '<em>↑ приоритет изменён</em>' : ""}</div><h3>${escapeHtml(item.topic.short_title)}</h3><p>${escapeHtml(item.topic.description)}</p><div class="course-task-numbers">${item.task_numbers.map((number) => `<span>№${number}</span>`).join("")}</div><small class="course-reason">${escapeHtml(item.reason)}</small></div>
-        <div class="course-order-state"><b>${item.lesson_state === "completed" ? "Пройдено" : item.lesson_state === "current" ? `Сейчас: ${stepLabels[item.current_step]}` : "Впереди"}</b><small>${item.homework_status === "assigned" ? "ДЗ назначено отдельно" : item.homework_status === "completed" ? "ДЗ выполнено" : "ДЗ после практики"}</small>${item.lesson_state === "current" ? '<button class="text-button" data-go="lessons">Открыть урок →</button>' : ""}</div>
+        <div class="course-order-main"><div class="course-order-title"><span>Этап ${item.stage.number}</span>${item.is_adapted ? '<em>↑ приоритет изменён</em>' : ""}</div><h3>${escapeHtml(item.topic.short_title)}</h3><p>${escapeHtml(item.topic.description)}</p><div class="course-task-numbers">${item.task_numbers.map((number) => `<span>№${number}</span>`).join("")}</div>${renderRoadmapSubtopics(item.subtopics)}<small class="course-reason">${escapeHtml(item.reason)}</small></div>
+        <div class="course-order-state"><strong>${item.progress}%</strong><i><b style="width:${item.progress}%"></b></i><b>${item.lesson_state === "completed" ? "Пройдено" : item.lesson_state === "current" ? `Сейчас: ${stepLabels[item.current_step]}` : "Впереди"}</b><small>${item.homework_status === "assigned" ? "ДЗ назначено отдельно" : item.homework_status === "completed" ? "ДЗ выполнено" : "ДЗ после практики"}</small>${item.lesson_state === "current" ? '<button class="text-button" data-go="lessons">Открыть урок →</button>' : ""}</div>
       </li>`).join("")}</ol>
     </section>`;
   bindGoButtons();
@@ -245,13 +337,30 @@ function renderTheoryExample(example, secondary = false) {
 
 function renderDetailedTheory(chapter) {
   const scope = chapter.exam_scope;
-  return `<section class="exam-scope">
+  const lastPage = chapter.sections.length - 1;
+  const pageIndex = Math.min(Math.max(state.lessonTheoryPage, 0), lastPage);
+  const section = chapter.sections[pageIndex];
+  const progress = Math.round(((pageIndex + 1) / chapter.sections.length) * 100);
+  const introduction = pageIndex === 0 ? `<section class="exam-scope">
       <div><span>${escapeHtml(scope.label)}</span><h3>Что действительно проверяют</h3><p>${escapeHtml(scope.text)}</p></div>
       <ul>${scope.skills.map((skill) => `<li>${escapeHtml(skill)}</li>`).join("")}</ul>
+    </section>` : "";
+  const review = pageIndex === lastPage ? `<section class="exam-pattern-section"><p class="eyebrow">Пять формулировок — один набор правил</p><h3>Как узнать тип задания</h3>
+      <div class="exam-pattern-grid">${chapter.exam_patterns.map((pattern, index) => `<article><span>0${index + 1}</span><b>${escapeHtml(pattern.title)}</b><p>${escapeHtml(pattern.method)}</p></article>`).join("")}</div>
     </section>
-    <div class="formula-strip">${chapter.key_points.map((point) => `<span>${escapeHtml(point)}</span>`).join("")}</div>
-    <div class="theory-outline" aria-label="Содержание конспекта">${chapter.sections.map((section) => `<span><b>${escapeHtml(section.number)}</b>${escapeHtml(section.title)}</span>`).join("")}</div>
-    <div class="detailed-theory">${chapter.sections.map((section) => `<section class="theory-section" id="theory-section-${escapeHtml(section.id)}">
+    <div class="theory-review-grid">
+      <section class="mistake-card"><p class="eyebrow">Типичные ошибки</p><h3>Где теряют балл</h3><ul>${chapter.mistakes.map((mistake) => `<li>${escapeHtml(mistake)}</li>`).join("")}</ul></section>
+      <section class="checklist-card"><p class="eyebrow">Перед ответом</p><h3>Проверка за 20 секунд</h3><ol>${chapter.checklist.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></section>
+    </div>
+    <footer class="theory-reference"><b>Основа конспекта</b><span>${escapeHtml(chapter.reference.title)} · ${escapeHtml(chapter.reference.sections)}</span><small>${escapeHtml(chapter.reference.note)}</small></footer>` : "";
+
+  return `<div class="theory-page-status">
+      <div><span>Теория</span><b>Страница ${pageIndex + 1} из ${chapter.sections.length}</b></div>
+      <strong>${progress}%</strong>
+      <i aria-label="Прогресс теории: ${progress}%"><b style="width:${progress}%"></b></i>
+    </div>
+    ${introduction}
+    <div class="detailed-theory"><section class="theory-section" id="theory-section-${escapeHtml(section.id)}">
       <header><span>${escapeHtml(section.number)}</span><div><p>Экзаменационная база</p><h3>${escapeHtml(section.title)}</h3></div></header>
       <div class="theory-section-layout ${section.diagram ? "with-diagram" : ""}">
         <div class="theory-section-copy"><p class="section-lead">${escapeHtml(section.lead)}</p>
@@ -262,20 +371,48 @@ function renderDetailedTheory(chapter) {
       </div>
       <div class="example-row">${renderTheoryExample(section.example)}${renderTheoryExample(section.secondary_example, true)}</div>
       <p class="exam-note"><b>На ЕГЭ</b>${escapeHtml(section.exam_note)}</p>
-    </section>`).join("")}</div>
-    <section class="exam-pattern-section"><p class="eyebrow">Пять формулировок — один набор правил</p><h3>Как узнать тип задания</h3>
-      <div class="exam-pattern-grid">${chapter.exam_patterns.map((pattern, index) => `<article><span>0${index + 1}</span><b>${escapeHtml(pattern.title)}</b><p>${escapeHtml(pattern.method)}</p></article>`).join("")}</div>
-    </section>
-    <div class="theory-review-grid">
-      <section class="mistake-card"><p class="eyebrow">Типичные ошибки</p><h3>Где теряют балл</h3><ul>${chapter.mistakes.map((mistake) => `<li>${escapeHtml(mistake)}</li>`).join("")}</ul></section>
-      <section class="checklist-card"><p class="eyebrow">Перед ответом</p><h3>Проверка за 20 секунд</h3><ol>${chapter.checklist.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></section>
-    </div>
-    <footer class="theory-reference"><b>Основа конспекта</b><span>${escapeHtml(chapter.reference.title)} · ${escapeHtml(chapter.reference.sections)}</span><small>${escapeHtml(chapter.reference.note)}</small></footer>`;
+    </section></div>
+    ${review}`;
 }
 
 function renderLessonTheory(chapter) {
   if (chapter.sections?.length) return renderDetailedTheory(chapter);
   return `<ul class="formula-list">${chapter.key_points.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>`;
+}
+
+function renderTheoryActions(chapter, reviewingTheory, lesson) {
+  if (!chapter.sections?.length) {
+    return `<div class="lesson-action"><span>${reviewingTheory ? `Выполнено ${lesson.practice.attempted_tasks} из ${lesson.practice.total_tasks} задач` : `${chapter.read_minutes} минут на изучение`}</span><button class="primary-button" ${reviewingTheory ? "data-return-practice" : 'id="complete-theory"'}>${reviewingTheory ? "Вернуться к практике →" : "Перейти к практике →"}</button></div>`;
+  }
+
+  const pageIndex = state.lessonTheoryPage;
+  const lastPage = chapter.sections.length - 1;
+  return `<div class="theory-page-actions">
+      <button class="secondary-button" type="button" data-theory-prev ${pageIndex === 0 ? "disabled" : ""}>← Назад</button>
+      ${pageIndex < lastPage
+        ? `<button class="primary-button" type="button" data-theory-next>Следующая страница →</button>`
+        : `<button class="primary-button" type="button" ${reviewingTheory ? "data-return-practice" : 'id="complete-theory"'}>${reviewingTheory ? "Вернуться к практике →" : "Перейти к практике →"}</button>`}
+    </div>`;
+}
+
+function syncTheoryPages(lesson) {
+  if (!lesson.theory?.sections?.length) return;
+  if (state.lessonTheoryUnitId === lesson.unit_id) return;
+  state.lessonTheoryUnitId = lesson.unit_id;
+  state.lessonTheoryPage = 0;
+}
+
+function openTheoryPage(pageIndex) {
+  const lastPage = state.lesson.theory.sections.length - 1;
+  const target = Math.min(Math.max(pageIndex, 0), lastPage);
+  state.lessonTheoryPage = target;
+  renderLessons();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function bindTheoryPageControls() {
+  document.querySelector("[data-theory-prev]")?.addEventListener("click", () => openTheoryPage(state.lessonTheoryPage - 1));
+  document.querySelector("[data-theory-next]")?.addEventListener("click", () => openTheoryPage(state.lessonTheoryPage + 1));
 }
 
 function renderLessons() {
@@ -287,18 +424,20 @@ function renderLessons() {
     return;
   }
 
+  syncTheoryPages(lesson);
+
   const currentStep = lesson.current_step;
   const reviewingTheory = currentStep === "practice" && state.lessonView === "theory";
   const isTheory = currentStep === "theory" || reviewingTheory;
   const task = lesson.practice_task;
   const stepContent = isTheory ? `<article class="lesson-panel lesson-theory">
-      ${reviewingTheory ? '<div class="review-theory-banner"><b>Повторение теории</b><span>Прогресс практики сохранён. После повторения вернитесь к текущей задаче.</span></div>' : ""}
+      ${reviewingTheory ? '<div class="review-theory-banner"><b>Повторение теории</b><span>Прогресс практики сохранён. Можно открыть любую подтему.</span><button class="secondary-button" type="button" data-return-practice>Вернуться к задаче →</button></div>' : ""}
       <p class="eyebrow">${lesson.theory.eyebrow}</p>
       <h2>${lesson.theory.title}</h2>
       <p class="lesson-summary">${lesson.theory.summary}</p>
       ${renderLessonTheory(lesson.theory)}
-      <aside class="theory-tip"><b>Совет перед практикой</b>${lesson.theory.tip}</aside>
-      <div class="lesson-action"><span>${reviewingTheory ? `Выполнено ${lesson.practice.attempted_tasks} из ${lesson.practice.total_tasks} задач` : `${lesson.theory.read_minutes} минут на изучение`}</span><button class="primary-button" id="${reviewingTheory ? "return-to-practice" : "complete-theory"}">${reviewingTheory ? "Вернуться к практике →" : "Теория изучена →"}</button></div>
+      ${!lesson.theory.sections?.length || state.lessonTheoryPage === lesson.theory.sections.length - 1 ? `<aside class="theory-tip"><b>Совет перед практикой</b>${lesson.theory.tip}</aside>` : ""}
+      ${renderTheoryActions(lesson.theory, reviewingTheory, lesson)}
     </article>` : `<article class="lesson-panel lesson-task">
       <div class="practice-banner"><b>Практика: ${escapeHtml(lesson.topic.short_title)}</b><span>Все ${lesson.practice.total_tasks} заданий проверяют только теорию этого урока.</span></div>
       <div class="practice-toolbar"><div><span>Задача ${lesson.practice.current_task_number} из ${lesson.practice.total_tasks}</span><i><b style="width:${lesson.practice.attempted_tasks / lesson.practice.total_tasks * 100}%"></b></i></div><button class="secondary-button" id="review-theory">← Вернуться к теории</button></div>
@@ -321,10 +460,11 @@ function renderLessons() {
       ${stepContent}
     </section>`;
   bindGoButtons();
+  if (isTheory) bindTheoryPageControls();
   if (currentStep === "theory") {
-    document.querySelector("#complete-theory").addEventListener("click", completeCurrentTheory);
+    document.querySelector("#complete-theory")?.addEventListener("click", completeCurrentTheory);
   } else if (reviewingTheory) {
-    document.querySelector("#return-to-practice").addEventListener("click", returnToPractice);
+    document.querySelectorAll("[data-return-practice]").forEach((button) => button.addEventListener("click", returnToPractice));
   } else {
     document.querySelector("#review-theory").addEventListener("click", reviewCurrentTheory);
     document.querySelector("#lesson-answer-form").addEventListener("submit", submitLessonAnswer);
@@ -373,6 +513,7 @@ async function refreshLearningData() {
 
 function reviewCurrentTheory() {
   state.lessonView = "theory";
+  state.lessonTheoryPage = 0;
   renderLessons();
 }
 
@@ -382,6 +523,10 @@ function returnToPractice() {
 }
 
 async function completeCurrentTheory() {
+  if (state.lesson.theory.sections?.length && state.lessonTheoryPage !== state.lesson.theory.sections.length - 1) {
+    toast("Сначала пройдите все страницы теории.");
+    return;
+  }
   const button = document.querySelector("#complete-theory");
   button.disabled = true;
   button.textContent = "Сохраняем…";
@@ -392,11 +537,12 @@ async function completeCurrentTheory() {
     });
     await refreshLearningData();
     state.lessonView = null;
+    state.lessonTheoryPage = 0;
     renderLessons();
     toast("Теория пройдена. Открыта практика.");
   } catch (error) {
     button.disabled = false;
-    button.textContent = "Теория изучена →";
+    button.textContent = "Перейти к практике →";
     toast(error.message);
   }
 }
@@ -511,7 +657,7 @@ function renderPractice() {
     <div class="practice-layout">
       <aside class="task-sidebar">
         <div class="filter-group"><label>Сложность</label>
-          ${[["all","Все"],["basic","База"],["standard","Средние"],["advanced","Повышенные"],["expert","Сложные"]].map(([value,label]) => `<button class="filter-chip ${state.practiceFilter === value ? "active" : ""}" data-filter="${value}">${label}</button>`).join("")}
+          ${[["all", "Все"], ["basic", "База"], ["standard", "Средние"], ["advanced", "Повышенные"], ["expert", "Сложные"]].map(([value, label]) => `<button class="filter-chip ${state.practiceFilter === value ? "active" : ""}" data-filter="${value}">${label}</button>`).join("")}
         </div>
         <div class="filter-group"><label>Номер задания</label><div class="task-numbers">
           ${list.map((item, index) => `<button class="task-number ${index === state.currentTask ? "active" : ""} ${item.difficulty === "expert" ? "complex" : ""}" data-task-index="${index}">${item.exam_number}</button>`).join("")}
@@ -574,14 +720,14 @@ async function submitAnswer(event) {
 function renderTheory() {
   view.innerHTML = `${pageHeader("Библиотека", "Теория по темам ЕГЭ", "Каждый конспект связан с конкретными номерами практики.")}
     <div class="theory-grid">${state.theory.map((chapter) => {
-      const tasks = state.tasks.filter((task) => task.theory_id === chapter.id);
-      return `<article class="theory-card ${state.focusTheory === chapter.id ? "focused" : ""}" id="theory-${chapter.id}">
+    const tasks = state.tasks.filter((task) => task.theory_id === chapter.id);
+    return `<article class="theory-card ${state.focusTheory === chapter.id ? "focused" : ""}" id="theory-${chapter.id}">
         <p class="eyebrow">${chapter.eyebrow}</p><h2>${chapter.title}</h2><p>${chapter.summary}</p>
         <ul class="formula-list">${chapter.key_points.map((point) => `<li>${point}</li>`).join("")}</ul>
         <div class="task-link-row">${tasks.map((task) => `<a href="#practice-${task.id}" data-open-task="${task.id}" class="task-link ${task.difficulty === "expert" ? "complex" : ""}">Практика №${task.exam_number}</a>`).join("")}</div>
         <div class="theory-foot"><span>${chapter.read_minutes} минут</span><button class="text-button" data-theory="${chapter.id}">Совет по теме</button></div>
       </article>`;
-    }).join("")}</div>`;
+  }).join("")}</div>`;
   document.querySelectorAll("[data-theory]").forEach((button) => button.addEventListener("click", () => {
     const chapter = state.theory.find((item) => item.id === button.dataset.theory);
     toast(`Совет: ${chapter.tip}`);

@@ -415,6 +415,31 @@ _PRACTICE_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
     ]
 }
 
+_PRACTICE_SUBTOPIC_IDS: dict[str, list[list[str]]] = {
+    "short-geometry:vectors": [
+        ["vector-length"],
+        ["vector-length"],
+        ["vector-coordinates", "vector-length"],
+        ["vector-coordinates"],
+        ["vector-coordinates"],
+        ["vector-coordinates"],
+        ["vector-coordinates"],
+        ["vector-coordinates"],
+        ["vector-operations"],
+        ["vector-operations", "vector-length"],
+        ["vector-operations"],
+        ["vector-operations", "vector-length"],
+        ["scalar-product"],
+        ["vector-operations", "scalar-product"],
+        ["scalar-product"],
+        ["scalar-product"],
+        ["vector-operations", "vector-length"],
+        ["scalar-product"],
+        ["scalar-product"],
+        ["scalar-product"],
+    ]
+}
+
 
 def _task(task_id: str) -> dict[str, object]:
     found = next((item for item in TASKS if item["id"] == task_id), None)
@@ -476,12 +501,16 @@ def _practice_tasks(
             practice_task = deepcopy(tasks[0])
             practice_task.update(override)
             practice_task["lesson_task_key"] = f"{unit_id}:practice:{index + 1}"
+            practice_task["subtopic_ids"] = deepcopy(
+                _PRACTICE_SUBTOPIC_IDS.get(unit_id, [[] for _ in overrides])[index]
+            )
             result.append(practice_task)
         return result
     result = []
     for index, task in enumerate(tasks):
         practice_task = deepcopy(task)
         practice_task["lesson_task_key"] = f"{unit_id}:practice:{index + 1}"
+        practice_task["subtopic_ids"] = [f"task:{task['id']}"]
         result.append(practice_task)
     return result
 
@@ -672,6 +701,83 @@ def _lesson_unit_state(
     }
 
 
+def _scaled_progress(completed: int, total: int, weight: int) -> int:
+    if total <= 0:
+        return weight
+    return min(weight, (completed * weight + total // 2) // total)
+
+
+def _lesson_progress(unit_state: dict[str, object]) -> int:
+    theory_progress = 50 if bool(unit_state["theory_done"]) else 0
+    practice_progress = _scaled_progress(
+        int(unit_state["practice_attempted_tasks"]),
+        int(unit_state["practice_total_tasks"]),
+        50,
+    )
+    return min(100, theory_progress + practice_progress)
+
+
+def _unit_subtopics(
+    unit: dict[str, object],
+    unit_state: dict[str, object],
+    attempts: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    theory = unit["theory"]
+    sections = theory.get("sections", [])
+    if sections:
+        definitions = [
+            {
+                "id": str(section["id"]),
+                "title": str(section["title"]),
+                "description": str(section.get("lead", "Раздел теории урока.")),
+                "kind": "theory_section",
+            }
+            for section in sections
+        ]
+    else:
+        definitions = [
+            {
+                "id": f"task:{task['id']}",
+                "title": str(task["title"]),
+                "description": f"Экзаменационное задание №{task['exam_number']}",
+                "kind": "exam_skill",
+            }
+            for task in unit["tasks"]
+        ]
+
+    result = []
+    for order, definition in enumerate(definitions, start=1):
+        related_tasks = [
+            (index, task)
+            for index, task in enumerate(unit["practice_tasks"])
+            if definition["id"] in task.get("subtopic_ids", [])
+        ]
+        attempted_tasks = sum(
+            _has_practice_attempt(attempts, str(unit["id"]), task, index)
+            for index, task in related_tasks
+        )
+        theory_progress = 50 if bool(unit_state["theory_done"]) else 0
+        practice_progress = _scaled_progress(attempted_tasks, len(related_tasks), 50)
+        progress = min(100, theory_progress + practice_progress)
+        result.append(
+            {
+                **definition,
+                "order": order,
+                "progress": progress,
+                "state": (
+                    "completed"
+                    if progress == 100
+                    else "in_progress"
+                    if progress > 0
+                    else "upcoming"
+                ),
+                "practice_attempted_tasks": attempted_tasks,
+                "practice_total_tasks": len(related_tasks),
+            }
+        )
+    return result
+
+
 def _step_state(done: bool, current: bool) -> str:
     if done:
         return "completed"
@@ -739,6 +845,7 @@ def get_current_lesson(session_id: str) -> dict[str, object]:
         None,
     )
     completed = sum(bool(unit_state["complete"]) for unit_state in states)
+    overall_progress = round(sum(_lesson_progress(unit_state) for unit_state in states) / len(states))
     if current_index is None:
         return {
             "session_id": session_id,
@@ -746,7 +853,7 @@ def get_current_lesson(session_id: str) -> dict[str, object]:
             "current_step": "complete",
             "completed_units": completed,
             "total_units": len(units),
-            "overall_progress": 100,
+            "overall_progress": overall_progress,
         }
 
     unit = units[current_index]
@@ -780,7 +887,9 @@ def get_current_lesson(session_id: str) -> dict[str, object]:
         "position": current_index + 1,
         "completed_units": completed,
         "total_units": len(units),
-        "overall_progress": round(completed / len(units) * 100),
+        "overall_progress": overall_progress,
+        "progress": _lesson_progress(unit_state),
+        "subtopics": _unit_subtopics(unit, unit_state, attempts),
         "current_step": current_step,
         "steps": steps,
         "stage": {
@@ -1375,6 +1484,17 @@ def get_roadmap(session_id: str) -> dict[str, object]:
                 ),
                 "completed_lessons": completed_lessons,
                 "lesson_units": len(stage_units),
+                "progress": (
+                    round(
+                        sum(
+                            _lesson_progress(lesson_states[str(unit["id"])])
+                            for unit in stage_units
+                        )
+                        / len(stage_units)
+                    )
+                    if stage_units
+                    else 0
+                ),
                 "covered_task_types": covered,
                 "task_types": len(stage_tasks),
                 "tasks": [
@@ -1399,6 +1519,12 @@ def get_roadmap(session_id: str) -> dict[str, object]:
                         ],
                         "theory_id": metrics[str(unit["topic"]["id"])]["theory_id"],
                         "current_step": lesson_states[str(unit["id"])]["current_step"],
+                        "progress": _lesson_progress(lesson_states[str(unit["id"])]),
+                        "subtopics": _unit_subtopics(
+                            unit,
+                            lesson_states[str(unit["id"])],
+                            attempts,
+                        ),
                         "lesson_state": (
                             "completed"
                             if lesson_states[str(unit["id"])]["complete"]
@@ -1454,6 +1580,8 @@ def get_roadmap(session_id: str) -> dict[str, object]:
                 ],
                 "mastery": metrics[topic_id]["mastery"],
                 "current_step": unit_state["current_step"],
+                "progress": _lesson_progress(unit_state),
+                "subtopics": _unit_subtopics(unit, unit_state, attempts),
                 "lesson_state": (
                     "completed"
                     if unit_state["complete"]
@@ -1522,6 +1650,8 @@ def get_student_dashboard(session_id: str) -> dict[str, object]:
             "description": lesson["topic"]["description"],
             "step": current_step,
             "step_label": "Теория" if current_step == "theory" else "Практика",
+            "progress": lesson["progress"],
+            "subtopics": lesson["subtopics"],
             "estimated_minutes": (
                 lesson["theory"]["read_minutes"]
                 if current_step == "theory"
@@ -1541,6 +1671,11 @@ def get_student_dashboard(session_id: str) -> dict[str, object]:
             ),
             "due_date": homework["due_date"],
             "estimated_minutes": homework["estimated_minutes"],
+            "progress": _scaled_progress(
+                int(homework["attempted_tasks"]),
+                int(homework["total_tasks"]),
+                100,
+            ),
             "href": "#homework",
         }
 
@@ -1559,6 +1694,8 @@ def get_student_dashboard(session_id: str) -> dict[str, object]:
                     if item["lesson_state"] == "current"
                     else f"Этап {item['stage']['number']} · по roadmap"
                 ),
+                "progress": item["progress"],
+                "subtopics": item["subtopics"],
                 "href": "#lessons",
             }
         )
@@ -1569,6 +1706,7 @@ def get_student_dashboard(session_id: str) -> dict[str, object]:
                 "date": homework_today["due_date"],
                 "title": homework_today["title"],
                 "detail": "Срок домашней работы",
+                "progress": homework_today["progress"],
                 "href": "#homework",
             }
         )

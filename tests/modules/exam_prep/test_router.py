@@ -2,12 +2,92 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.modules.exam_prep.catalog import TASKS
-from app.modules.exam_prep.service import reset_demo_state
+from app.modules.exam_prep.service import _lesson_units, reset_demo_state
 
 
 @pytest.fixture(autouse=True)
 def reset_state() -> None:
     reset_demo_state()
+
+
+def complete_current_theory(client: TestClient, session_id: str) -> dict[str, object]:
+    lesson = client.get(
+        "/api/v1/exam/math-profile/lesson/current",
+        params={"session_id": session_id},
+    ).json()["data"]
+    response = client.post(
+        "/api/v1/exam/math-profile/lesson/theory/complete",
+        json={"session_id": session_id, "lesson_unit_id": lesson["unit_id"]},
+    )
+    assert response.status_code == 200
+    return response.json()["data"]
+
+
+def solve_current_practice(
+    client: TestClient, session_id: str, answers: list[str]
+) -> list[dict[str, object]]:
+    results = []
+    for answer in answers:
+        lesson = client.get(
+            "/api/v1/exam/math-profile/lesson/current",
+            params={"session_id": session_id},
+        ).json()["data"]
+        task = lesson["practice_task"]
+        response = client.post(
+            "/api/v1/exam/math-profile/attempts",
+            json={
+                "session_id": session_id,
+                "task_id": task["id"],
+                "answer": answer,
+                "mode": "practice",
+                "lesson_unit_id": lesson["unit_id"],
+                "lesson_task_key": task["lesson_task_key"],
+            },
+        )
+        assert response.status_code == 200
+        result = response.json()["data"]
+        assert result["is_correct"] is True
+        results.append(result)
+    return results
+
+
+def solve_current_homework(
+    client: TestClient, session_id: str, answers: list[str]
+) -> list[dict[str, object]]:
+    results = []
+    for answer in answers:
+        homework = client.get(
+            "/api/v1/exam/math-profile/homework/current",
+            params={"session_id": session_id},
+        ).json()["data"]
+        task = homework["task"]
+        response = client.post(
+            "/api/v1/exam/math-profile/attempts",
+            json={
+                "session_id": session_id,
+                "task_id": task["id"],
+                "answer": answer,
+                "mode": "homework",
+                "lesson_unit_id": homework["unit_id"],
+                "lesson_task_key": task["lesson_task_key"],
+            },
+        )
+        assert response.status_code == 200
+        result = response.json()["data"]
+        assert result["is_correct"] is True
+        results.append(result)
+    return results
+
+
+def complete_current_unit(
+    client: TestClient,
+    session_id: str,
+    practice_answers: list[str],
+    homework_answers: list[str],
+) -> None:
+    complete_current_theory(client, session_id)
+    solve_current_practice(client, session_id, practice_answers)
+    solve_current_homework(client, session_id, homework_answers)
 
 
 def test_overview_matches_fipi_2026_structure(client: TestClient) -> None:
@@ -65,6 +145,458 @@ def test_vector_theory_covers_only_current_exam_methods(client: TestClient) -> N
     ).json()["data"]
     assert lesson["topic"]["id"] == "vectors"
     assert lesson["theory"]["sections"] == chapter["sections"]
+
+
+def test_geometry_has_paged_theory_twenty_practice_and_fifteen_homework_tasks(
+    client: TestClient,
+) -> None:
+    session_id = "geometry-course-student"
+    chapter = client.get(
+        "/api/v1/exam/math-profile/theory",
+        params={"topic_id": "geometry"},
+    ).json()["data"][0]
+    assert chapter["title"] == "Геометрия: вычисления без лишних построений"
+    assert chapter["read_minutes"] == 25
+    assert [section["id"] for section in chapter["sections"]] == [
+        "geometry-triangles",
+        "geometry-quadrilaterals",
+        "geometry-circles",
+        "geometry-polyhedra",
+        "geometry-round-solids",
+    ]
+    assert all(section.get("diagram") for section in chapter["sections"])
+
+    complete_current_theory(client, session_id)
+    solve_current_practice(
+        client,
+        session_id,
+        [
+            "17",
+            "625",
+            "10",
+            "2",
+            "8",
+            "8",
+            "4",
+            "7",
+            "10",
+            "25",
+            "9",
+            "89",
+            "7",
+            "8",
+            "6",
+            "90",
+            "5",
+            "12",
+            "-0.6",
+            "8",
+        ],
+    )
+    solve_current_homework(
+        client,
+        session_id,
+        [
+            "25",
+            "225",
+            "14",
+            "1",
+            "12",
+            "13",
+            "12",
+            "11",
+            "10",
+            "-3",
+            "90",
+            "24",
+            "-20",
+            "0.96",
+            "7",
+        ],
+    )
+
+    geometry = client.get(
+        "/api/v1/exam/math-profile/lesson/current",
+        params={"session_id": session_id},
+    ).json()["data"]
+    assert geometry["topic"]["id"] == "geometry"
+    assert geometry["current_step"] == "theory"
+    assert geometry["theory"]["sections"] == chapter["sections"]
+    assert len(geometry["subtopics"]) == 5
+
+    roadmap = client.get(
+        "/api/v1/exam/math-profile/roadmap",
+        params={"session_id": session_id},
+    ).json()["data"]
+    advanced_geometry = next(
+        item for item in roadmap["lesson_order"] if item["unit_id"] == "complex-part-two:geometry"
+    )
+    assert advanced_geometry["progress"] == 0
+    assert all(subtopic["progress"] == 0 for subtopic in advanced_geometry["subtopics"])
+
+    blocked = client.post(
+        "/api/v1/exam/math-profile/attempts",
+        json={
+            "session_id": session_id,
+            "task_id": geometry["practice_task"]["id"],
+            "answer": "15",
+            "mode": "practice",
+            "lesson_unit_id": geometry["unit_id"],
+            "lesson_task_key": geometry["practice_task"]["lesson_task_key"],
+        },
+    )
+    assert blocked.status_code == 409
+
+    after_theory = complete_current_theory(client, session_id)
+    assert after_theory["practice"]["total_tasks"] == 20
+    assert all(item["progress"] == 50 for item in after_theory["subtopics"])
+
+    practice_prompts = []
+    practice_sources = []
+    geometry_answers = [
+        "15",
+        "35",
+        "60",
+        "13",
+        "84",
+        "55",
+        "60",
+        "8",
+        "12",
+        "9",
+        "55",
+        "12",
+        "64",
+        "13",
+        "126",
+        "144",
+        "72",
+        "60",
+        "48",
+        "36",
+    ]
+    for answer in geometry_answers:
+        current = client.get(
+            "/api/v1/exam/math-profile/lesson/current",
+            params={"session_id": session_id},
+        ).json()["data"]
+        practice_prompts.append(current["practice_task"]["prompt"])
+        practice_sources.append(current["practice_task"]["source"])
+        solve_current_practice(client, session_id, [answer])
+
+    assert len(practice_prompts) == len(set(practice_prompts)) == 20
+    theory_examples = {
+        example["prompt"]
+        for section in chapter["sections"]
+        for example in (section.get("example"), section.get("secondary_example"))
+        if example
+    }
+    assert theory_examples.isdisjoint(practice_prompts)
+    assert all(source["adapted"] and not source["verbatim"] for source in practice_sources)
+
+    homework = client.get(
+        "/api/v1/exam/math-profile/homework/current",
+        params={"session_id": session_id},
+    ).json()["data"]
+    assert homework["status"] == "active"
+    assert homework["topic"]["id"] == "geometry"
+    assert homework["total_tasks"] == 15
+
+    homework_prompts = []
+    geometry_homework_answers = [
+        "17",
+        "30",
+        "48",
+        "90",
+        "56",
+        "48",
+        "14",
+        "9",
+        "8",
+        "3",
+        "4",
+        "150",
+        "80",
+        "36",
+        "36",
+    ]
+    for answer in geometry_homework_answers:
+        current = client.get(
+            "/api/v1/exam/math-profile/homework/current",
+            params={"session_id": session_id},
+        ).json()["data"]
+        homework_prompts.append(current["task"]["prompt"])
+        solve_current_homework(client, session_id, [answer])
+
+    assert len(homework_prompts) == len(set(homework_prompts)) == 15
+    assert set(homework_prompts).isdisjoint(practice_prompts)
+    assert (
+        client.get(
+            "/api/v1/exam/math-profile/homework/current",
+            params={"session_id": session_id},
+        ).json()["data"]["status"]
+        == "empty"
+    )
+
+
+def test_guided_tasks_are_explicitly_bound_to_theory_sections() -> None:
+    expected_counts = {
+        "short-geometry:vectors": (20, 15),
+        "short-geometry:geometry": (20, 15),
+        "probability-models:probability": (20, 15),
+    }
+
+    for unit_id, (practice_count, homework_count) in expected_counts.items():
+        unit = next(item for item in _lesson_units() if item["id"] == unit_id)
+        section_ids = {section["id"] for section in unit["theory"]["sections"]}
+        practice_tasks = unit["practice_tasks"]
+        homework_tasks = unit["homework_tasks"]
+
+        assert len(practice_tasks) == practice_count
+        assert len(homework_tasks) == homework_count
+        for task in [*practice_tasks, *homework_tasks]:
+            assert task.get("subtopic_ids")
+            assert set(task["subtopic_ids"]) <= section_ids
+
+        mapped_practice_sections = {
+            subtopic_id for task in practice_tasks for subtopic_id in task["subtopic_ids"]
+        }
+        mapped_homework_sections = {
+            subtopic_id for task in homework_tasks for subtopic_id in task["subtopic_ids"]
+        }
+        assert mapped_practice_sections == section_ids
+        assert mapped_homework_sections == section_ids
+
+        theory_examples = {
+            example["prompt"]
+            for section in unit["theory"]["sections"]
+            for example in (section.get("example"), section.get("secondary_example"))
+            if example
+        }
+        practice_prompts = {task["prompt"] for task in practice_tasks}
+        homework_prompts = {task["prompt"] for task in homework_tasks}
+        assert len(practice_prompts) == practice_count
+        assert len(homework_prompts) == homework_count
+        assert theory_examples.isdisjoint(practice_prompts | homework_prompts)
+        assert practice_prompts.isdisjoint(homework_prompts)
+
+
+def test_probability_has_paged_theory_twenty_practice_and_fifteen_homework_tasks(
+    client: TestClient,
+) -> None:
+    session_id = "probability-course-student"
+    chapter = client.get(
+        "/api/v1/exam/math-profile/theory",
+        params={"topic_id": "probability"},
+    ).json()["data"][0]
+    assert chapter["title"] == "Вероятность: от одного исхода к дереву событий"
+    assert chapter["read_minutes"] == 24
+    assert [section["id"] for section in chapter["sections"]] == [
+        "probability-outcomes",
+        "probability-complement",
+        "probability-product",
+        "probability-union",
+        "probability-tree",
+    ]
+    assert all(section.get("diagram") for section in chapter["sections"])
+
+    complete_current_unit(
+        client,
+        session_id,
+        [
+            "17",
+            "625",
+            "10",
+            "2",
+            "8",
+            "8",
+            "4",
+            "7",
+            "10",
+            "25",
+            "9",
+            "89",
+            "7",
+            "8",
+            "6",
+            "90",
+            "5",
+            "12",
+            "-0.6",
+            "8",
+        ],
+        [
+            "25",
+            "225",
+            "14",
+            "1",
+            "12",
+            "13",
+            "12",
+            "11",
+            "10",
+            "-3",
+            "90",
+            "24",
+            "-20",
+            "0.96",
+            "7",
+        ],
+    )
+    complete_current_unit(
+        client,
+        session_id,
+        [
+            "15",
+            "35",
+            "60",
+            "13",
+            "84",
+            "55",
+            "60",
+            "8",
+            "12",
+            "9",
+            "55",
+            "12",
+            "64",
+            "13",
+            "126",
+            "144",
+            "72",
+            "60",
+            "48",
+            "36",
+        ],
+        [
+            "17",
+            "30",
+            "48",
+            "90",
+            "56",
+            "48",
+            "14",
+            "9",
+            "8",
+            "3",
+            "4",
+            "150",
+            "80",
+            "36",
+            "36",
+        ],
+    )
+
+    probability = client.get(
+        "/api/v1/exam/math-profile/lesson/current",
+        params={"session_id": session_id},
+    ).json()["data"]
+    assert probability["topic"]["id"] == "probability"
+    assert probability["current_step"] == "theory"
+    assert probability["theory"]["sections"] == chapter["sections"]
+
+    blocked = client.post(
+        "/api/v1/exam/math-profile/attempts",
+        json={
+            "session_id": session_id,
+            "task_id": probability["practice_task"]["id"],
+            "answer": "0.25",
+            "mode": "practice",
+            "lesson_unit_id": probability["unit_id"],
+            "lesson_task_key": probability["practice_task"]["lesson_task_key"],
+        },
+    )
+    assert blocked.status_code == 409
+
+    after_theory = complete_current_theory(client, session_id)
+    assert after_theory["practice"]["total_tasks"] == 20
+    assert all(item["progress"] == 50 for item in after_theory["subtopics"])
+
+    practice_prompts = []
+    practice_sources = []
+    practice_subtopics = []
+    probability_answers = [
+        "0.25",
+        "0.5",
+        "0.25",
+        "0.2",
+        "0.91",
+        "0.31",
+        "0.73",
+        "0.33",
+        "0.6",
+        "0.9409",
+        "0.125",
+        "0.504",
+        "0.6",
+        "0.58",
+        "0.8",
+        "0.54",
+        "0.04",
+        "0.66",
+        "0.6",
+        "0.5",
+    ]
+    for answer in probability_answers:
+        current = client.get(
+            "/api/v1/exam/math-profile/lesson/current",
+            params={"session_id": session_id},
+        ).json()["data"]
+        practice_prompts.append(current["practice_task"]["prompt"])
+        practice_sources.append(current["practice_task"]["source"])
+        practice_subtopics.extend(current["practice_task"]["subtopic_ids"])
+        solve_current_practice(client, session_id, [answer])
+
+    assert len(practice_prompts) == len(set(practice_prompts)) == 20
+    assert set(practice_subtopics) == {section["id"] for section in chapter["sections"]}
+    assert all(source["adapted"] and not source["verbatim"] for source in practice_sources)
+
+    homework = client.get(
+        "/api/v1/exam/math-profile/homework/current",
+        params={"session_id": session_id},
+    ).json()["data"]
+    assert homework["status"] == "active"
+    assert homework["topic"]["id"] == "probability"
+    assert homework["total_tasks"] == 15
+
+    homework_prompts = []
+    homework_subtopics = []
+    homework_answers = [
+        "0.3",
+        "0.2",
+        "0.25",
+        "0.96",
+        "0.28",
+        "0.82",
+        "0.42",
+        "0.512",
+        "0.02",
+        "0.45",
+        "0.8",
+        "0.7",
+        "0.02",
+        "0.6",
+        "0.1",
+    ]
+    for answer in homework_answers:
+        current = client.get(
+            "/api/v1/exam/math-profile/homework/current",
+            params={"session_id": session_id},
+        ).json()["data"]
+        homework_prompts.append(current["task"]["prompt"])
+        homework_subtopics.extend(current["task"]["subtopic_ids"])
+        solve_current_homework(client, session_id, [answer])
+
+    assert len(homework_prompts) == len(set(homework_prompts)) == 15
+    assert set(homework_prompts).isdisjoint(practice_prompts)
+    assert set(homework_subtopics) == {section["id"] for section in chapter["sections"]}
+    assert (
+        client.get(
+            "/api/v1/exam/math-profile/homework/current",
+            params={"session_id": session_id},
+        ).json()["data"]["status"]
+        == "empty"
+    )
 
 
 def test_attempt_updates_personal_analytics(client: TestClient) -> None:
@@ -273,9 +805,7 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
     assert first_result["lesson"]["practice"]["correct_tasks"] == 0
     assert first_result["lesson"]["practice"]["current_task_number"] == 2
     assert first_result["lesson"]["progress"] == 53
-    subtopics_after_first = {
-        item["id"]: item for item in first_result["lesson"]["subtopics"]
-    }
+    subtopics_after_first = {item["id"]: item for item in first_result["lesson"]["subtopics"]}
     assert subtopics_after_first["vector-length"]["progress"] == 58
     assert subtopics_after_first["vector-coordinates"]["progress"] == 50
 
@@ -344,8 +874,13 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
     assert all("вектор" in prompt.lower() for prompt in vector_prompts)
     assert len(vector_prompts) == len(set(vector_prompts)) == 20
     assert len({source["source_id"] for source in vector_sources}) == 20
-    assert all(source["url"].startswith("https://math-ege.sdamgia.ru/problem?id=") for source in vector_sources)
-    assert all(source["adapted"] is True and source["verbatim"] is False for source in vector_sources)
+    assert all(
+        source["url"].startswith("https://math-ege.sdamgia.ru/problem?id=")
+        for source in vector_sources
+    )
+    assert all(
+        source["adapted"] is True and source["verbatim"] is False for source in vector_sources
+    )
     theory_examples = {
         example["prompt"]
         for section in lesson["theory"]["sections"]
@@ -451,10 +986,7 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
     ).json()["data"]
     assert roadmap["stages"][0]["topics"][0]["lesson_state"] == "completed"
     assert roadmap["stages"][0]["topics"][0]["progress"] == 100
-    assert all(
-        item["progress"] == 100
-        for item in roadmap["stages"][0]["topics"][0]["subtopics"]
-    )
+    assert all(item["progress"] == 100 for item in roadmap["stages"][0]["topics"][0]["subtopics"])
     assert roadmap["stages"][0]["topics"][1]["lesson_state"] == "current"
 
 

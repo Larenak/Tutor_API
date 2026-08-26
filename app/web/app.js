@@ -159,6 +159,20 @@ function renderRoadmapSubtopics(subtopics, compact = false) {
     </div>`).join("")}</div>`;
 }
 
+function renderCourseOrderMain(item) {
+  const adaptation = item.is_adapted ? '<em>↑ приоритет изменён</em>' : "";
+  const heading = `<div><div class="course-order-title"><span>Этап ${item.stage.number}</span>${adaptation}</div><h3>${escapeHtml(item.topic.short_title)}</h3></div>`;
+  const content = `<p>${escapeHtml(item.topic.description)}</p><div class="course-task-numbers">${item.task_numbers.map((number) => `<span>№${number}</span>`).join("")}</div>${renderRoadmapSubtopics(item.subtopics)}<small class="course-reason">${escapeHtml(item.reason)}</small>`;
+
+  if (["vectors", "geometry", "probability"].includes(item.topic.id)) {
+    return `<div class="course-order-main"><details class="course-topic-disclosure" open>
+      <summary>${heading}<i aria-hidden="true">⌄</i></summary>
+      <div class="course-topic-disclosure-content">${content}</div>
+    </details></div>`;
+  }
+  return `<div class="course-order-main">${heading}${content}</div>`;
+}
+
 function renderDashboardCalendar(data) {
   const monthDate = localDate(state.dashboardCalendarMonth);
   const firstOffset = (new Date(monthDate.getFullYear(), monthDate.getMonth(), 1, 12).getDay() + 6) % 7;
@@ -270,7 +284,7 @@ function renderRoadmap() {
       <div class="section-heading"><div><h2>Порядок тем и заданий</h2><p>Это тот же порядок, который используется в разделе «Уроки»</p></div></div>
       <ol class="course-order">${roadmap.lesson_order.map((item) => `<li class="course-order-item ${item.lesson_state} ${item.is_adapted ? "adapted" : ""}">
         <span class="course-position">${item.lesson_state === "completed" ? "✓" : item.position}</span>
-        <div class="course-order-main"><div class="course-order-title"><span>Этап ${item.stage.number}</span>${item.is_adapted ? '<em>↑ приоритет изменён</em>' : ""}</div><h3>${escapeHtml(item.topic.short_title)}</h3><p>${escapeHtml(item.topic.description)}</p><div class="course-task-numbers">${item.task_numbers.map((number) => `<span>№${number}</span>`).join("")}</div>${renderRoadmapSubtopics(item.subtopics)}<small class="course-reason">${escapeHtml(item.reason)}</small></div>
+        ${renderCourseOrderMain(item)}
         <div class="course-order-state"><strong>${item.progress}%</strong><i><b style="width:${item.progress}%"></b></i><b>${item.lesson_state === "completed" ? "Пройдено" : item.lesson_state === "current" ? `Сейчас: ${stepLabels[item.current_step]}` : "Впереди"}</b><small>${item.homework_status === "assigned" ? "ДЗ назначено отдельно" : item.homework_status === "completed" ? "ДЗ выполнено" : "ДЗ после практики"}</small>${item.lesson_state === "current" ? '<button class="text-button" data-go="lessons">Открыть урок →</button>' : ""}</div>
       </li>`).join("")}</ol>
     </section>`;
@@ -281,7 +295,7 @@ function lessonStepTitle(step) {
   return { theory: "Теория", practice: "Практика" }[step] || "Завершено";
 }
 
-function vectorDiagram(type) {
+function theoryDiagram(type) {
   if (type === "coordinate-grid") {
     return `<figure class="theory-diagram coordinate-diagram">
       <svg viewBox="0 0 420 250" role="img" aria-labelledby="coordinate-diagram-title coordinate-diagram-desc">
@@ -322,6 +336,117 @@ function vectorDiagram(type) {
         <text class="diagram-formula" x="103" y="92">a · b = |a|·|b|·cos α</text>
       </svg>
       <figcaption>Оба вектора мысленно отложены от одной точки — только тогда виден угол между ними.</figcaption>
+    </figure>`;
+  }
+  if (type === "geometry-triangle") {
+    return `<figure class="theory-diagram geometry-diagram">
+      <svg viewBox="0 0 420 240" role="img" aria-labelledby="triangle-diagram-title triangle-diagram-desc">
+        <title id="triangle-diagram-title">Прямоугольный треугольник</title><desc id="triangle-diagram-desc">Катеты 6 и 8, гипотенуза 10.</desc>
+        <path class="geometry-fill" d="M82 194 L82 54 L330 194 Z"></path><path class="geometry-shape" d="M82 194 L82 54 L330 194 Z"></path>
+        <path class="geometry-guide" d="M82 174 L102 174 L102 194"></path>
+        <text x="52" y="127">6</text><text x="196" y="220">8</text><text class="diagram-answer" x="217" y="111">10</text>
+        <text class="diagram-formula" x="153" y="42">6² + 8² = 10²</text>
+      </svg><figcaption>Сначала найдите прямой угол, затем подпишите катеты и гипотенузу.</figcaption>
+    </figure>`;
+  }
+  if (type === "geometry-trapezoid") {
+    return `<figure class="theory-diagram geometry-diagram">
+      <svg viewBox="0 0 420 240" role="img" aria-labelledby="trapezoid-diagram-title trapezoid-diagram-desc">
+        <title id="trapezoid-diagram-title">Трапеция с высотой</title><desc id="trapezoid-diagram-desc">Основания 6 и 14, высота 4.</desc>
+        <path class="geometry-fill warm" d="M70 192 L122 72 L296 72 L350 192 Z"></path><path class="geometry-shape" d="M70 192 L122 72 L296 72 L350 192 Z"></path>
+        <line class="geometry-guide dashed" x1="122" y1="72" x2="122" y2="192"></line><path class="geometry-guide" d="M122 174 L140 174 L140 192"></path>
+        <text x="194" y="57">6</text><text x="198" y="217">14</text><text class="diagram-answer" x="91" y="136">h = 4</text>
+        <text class="diagram-formula" x="128" y="126">S = (a + b)h / 2</text>
+      </svg><figcaption>В формулу площади входит перпендикулярная основаниям высота, а не боковая сторона.</figcaption>
+    </figure>`;
+  }
+  if (type === "geometry-circle") {
+    return `<figure class="theory-diagram geometry-diagram">
+      <svg viewBox="0 0 420 240" role="img" aria-labelledby="circle-diagram-title circle-diagram-desc">
+        <title id="circle-diagram-title">Сектор круга и касательная</title><desc id="circle-diagram-desc">Радиусы образуют сектор, касательная перпендикулярна радиусу.</desc>
+        <circle class="geometry-fill" cx="178" cy="124" r="82"></circle><circle class="geometry-shape" cx="178" cy="124" r="82"></circle>
+        <path class="geometry-sector" d="M178 124 L178 42 A82 82 0 0 1 249 165 Z"></path>
+        <line class="geometry-shape" x1="178" y1="124" x2="178" y2="42"></line><line class="geometry-shape" x1="178" y1="124" x2="249" y2="165"></line>
+        <line class="geometry-guide warm" x1="260" y1="42" x2="260" y2="206"></line><path class="geometry-guide" d="M244 58 L260 58 L260 42"></path>
+        <text x="187" y="84">R</text><text class="diagram-answer" x="205" y="139">α</text><text x="274" y="119">касательная</text>
+      </svg><figcaption>Угол сектора задаёт долю круга; радиус в точку касания образует 90°.</figcaption>
+    </figure>`;
+  }
+  if (type === "geometry-prism") {
+    return `<figure class="theory-diagram geometry-diagram">
+      <svg viewBox="0 0 420 240" role="img" aria-labelledby="prism-diagram-title prism-diagram-desc">
+        <title id="prism-diagram-title">Прямая призма</title><desc id="prism-diagram-desc">Площадь основания умножается на высоту.</desc>
+        <path class="geometry-fill" d="M90 176 L210 204 L314 154 L195 127 Z"></path>
+        <path class="geometry-shape" d="M90 176 L210 204 L314 154 L195 127 Z M90 176 L90 70 L210 98 L314 48 L314 154 M90 70 L210 98 L314 48 M210 98 L210 204"></path>
+        <line class="geometry-guide dashed warm" x1="333" y1="48" x2="333" y2="154"></line>
+        <text class="diagram-answer" x="341" y="106">h</text><text x="155" y="174">Sосн</text>
+        <text class="diagram-formula" x="105" y="37">V = Sосн · h</text>
+      </svg><figcaption>Для призмы нужен полный столб высоты; для пирамиды результат дополнительно делят на 3.</figcaption>
+    </figure>`;
+  }
+  if (type === "geometry-solids") {
+    return `<figure class="theory-diagram geometry-diagram solids-diagram">
+      <svg viewBox="0 0 420 240" role="img" aria-labelledby="solids-diagram-title solids-diagram-desc">
+        <title id="solids-diagram-title">Цилиндр, конус и шар</title><desc id="solids-diagram-desc">Три круглых тела и их основные размеры.</desc>
+        <ellipse class="geometry-fill" cx="86" cy="62" rx="47" ry="15"></ellipse><path class="geometry-shape" d="M39 62 L39 177 M133 62 L133 177 M39 62 A47 15 0 0 0 133 62 M39 62 A47 15 0 0 1 133 62 M39 177 A47 15 0 0 0 133 177 M39 177 A47 15 0 0 1 133 177"></path>
+        <path class="geometry-fill warm" d="M209 49 L160 177 A49 15 0 0 0 258 177 Z"></path><path class="geometry-shape" d="M209 49 L160 177 M209 49 L258 177 M160 177 A49 15 0 0 0 258 177 M160 177 A49 15 0 0 1 258 177"></path>
+        <circle class="geometry-fill" cx="340" cy="120" r="62"></circle><circle class="geometry-shape" cx="340" cy="120" r="62"></circle><ellipse class="geometry-guide dashed" cx="340" cy="120" rx="62" ry="18"></ellipse>
+        <text class="diagram-answer" x="59" y="218">цилиндр</text><text class="diagram-answer" x="187" y="218">конус</text><text class="diagram-answer" x="326" y="218">шар</text>
+      </svg><figcaption>У цилиндра и конуса одно круглое основание в формуле; коэффициент 1/3 есть только у конуса.</figcaption>
+    </figure>`;
+  }
+  if (type === "probability-outcomes") {
+    return `<figure class="theory-diagram probability-diagram">
+      <svg viewBox="0 0 420 240" role="img" aria-labelledby="outcomes-diagram-title outcomes-diagram-desc">
+        <title id="outcomes-diagram-title">Благоприятные и все исходы</title><desc id="outcomes-diagram-desc">Семь синих и три зелёных шара образуют десять равновероятных исходов.</desc>
+        <g class="probability-outcome good"><circle cx="65" cy="72" r="20"></circle><circle cx="125" cy="72" r="20"></circle><circle cx="185" cy="72" r="20"></circle><circle cx="245" cy="72" r="20"></circle><circle cx="305" cy="72" r="20"></circle><circle cx="95" cy="126" r="20"></circle><circle cx="155" cy="126" r="20"></circle></g>
+        <g class="probability-outcome other"><circle cx="215" cy="126" r="20"></circle><circle cx="275" cy="126" r="20"></circle><circle cx="335" cy="126" r="20"></circle></g>
+        <text class="diagram-formula" x="112" y="196">P = 7 / 10 = 0,7</text>
+      </svg><figcaption>Каждый шар — один равновероятный исход; нужные исходы выделены цветом.</figcaption>
+    </figure>`;
+  }
+  if (type === "probability-complement") {
+    return `<figure class="theory-diagram probability-diagram">
+      <svg viewBox="0 0 420 240" role="img" aria-labelledby="complement-diagram-title complement-diagram-desc">
+        <title id="complement-diagram-title">Событие и его дополнение</title><desc id="complement-diagram-desc">Событие A и противоположное ему событие вместе дают вероятность один.</desc>
+        <rect class="probability-block good" x="54" y="73" width="116" height="86" rx="12"></rect><rect class="probability-block other" x="170" y="73" width="196" height="86" rx="12"></rect>
+        <text class="diagram-answer" x="100" y="123">A</text><text class="diagram-answer" x="241" y="123">не A</text>
+        <text class="diagram-formula" x="101" y="202">P(A) + P(не A) = 1</text>
+      </svg><figcaption>Противоположное событие заполняет всю оставшуюся часть вероятностного пространства.</figcaption>
+    </figure>`;
+  }
+  if (type === "probability-product") {
+    return `<figure class="theory-diagram probability-diagram">
+      <svg viewBox="0 0 420 240" role="img" aria-labelledby="product-diagram-title product-diagram-desc">
+        <title id="product-diagram-title">Последовательность независимых событий</title><desc id="product-diagram-desc">От события A к событию B ведёт одна ветка, вероятности вдоль неё перемножаются.</desc>
+        <circle class="probability-node" cx="62" cy="120" r="15"></circle><circle class="probability-node good" cx="196" cy="78" r="19"></circle><circle class="probability-node good" cx="346" cy="78" r="19"></circle>
+        <line class="probability-branch" x1="77" y1="115" x2="177" y2="84"></line><line class="probability-branch" x1="215" y1="78" x2="327" y2="78"></line>
+        <text x="111" y="87">P(A)</text><text x="254" y="65">P(B)</text><text class="diagram-answer" x="184" y="84">A</text><text class="diagram-answer" x="334" y="84">B</text>
+        <text class="diagram-formula" x="99" y="194">P(A и B) = P(A) · P(B)</text>
+      </svg><figcaption>Если нужны оба независимых события, идём по одной ветке и перемножаем.</figcaption>
+    </figure>`;
+  }
+  if (type === "probability-union") {
+    return `<figure class="theory-diagram probability-diagram">
+      <svg viewBox="0 0 420 240" role="img" aria-labelledby="union-diagram-title union-diagram-desc">
+        <title id="union-diagram-title">Объединение двух событий</title><desc id="union-diagram-desc">Два круга событий пересекаются, общую область нельзя считать дважды.</desc>
+        <circle class="probability-set good" cx="174" cy="109" r="72"></circle><circle class="probability-set other" cx="246" cy="109" r="72"></circle>
+        <text class="diagram-answer" x="128" y="111">A</text><text class="diagram-answer" x="277" y="111">B</text><text x="192" y="111">A ∩ B</text>
+        <text class="diagram-formula" x="50" y="210">P(A ∪ B) = P(A) + P(B) − P(A ∩ B)</text>
+      </svg><figcaption>Пересечение принадлежит обоим событиям, поэтому после сложения его вычитают один раз.</figcaption>
+    </figure>`;
+  }
+  if (type === "probability-tree") {
+    return `<figure class="theory-diagram probability-diagram">
+      <svg viewBox="0 0 420 240" role="img" aria-labelledby="tree-diagram-title tree-diagram-desc">
+        <title id="tree-diagram-title">Дерево полной вероятности</title><desc id="tree-diagram-desc">От корня идут ветви A и B, каждая делится на успех и неуспех.</desc>
+        <circle class="probability-node" cx="48" cy="120" r="13"></circle>
+        <line class="probability-branch" x1="61" y1="115" x2="176" y2="67"></line><line class="probability-branch other" x1="61" y1="125" x2="176" y2="173"></line>
+        <line class="probability-branch" x1="194" y1="67" x2="340" y2="43"></line><line class="probability-branch other" x1="194" y1="67" x2="340" y2="91"></line>
+        <line class="probability-branch" x1="194" y1="173" x2="340" y2="149"></line><line class="probability-branch other" x1="194" y1="173" x2="340" y2="197"></line>
+        <circle class="probability-node good" cx="185" cy="67" r="12"></circle><circle class="probability-node other" cx="185" cy="173" r="12"></circle>
+        <text class="diagram-answer" x="111" y="77">A</text><text class="diagram-answer" x="111" y="178">B</text><text x="348" y="47">успех</text><text x="348" y="95">нет</text><text x="348" y="153">успех</text><text x="348" y="201">нет</text>
+      </svg><figcaption>Вдоль ветки умножаем, затем складываем все ветки, которые приводят к нужному результату.</figcaption>
     </figure>`;
   }
   return "";
@@ -367,7 +492,7 @@ function renderDetailedTheory(chapter) {
           <ul class="explanation-list">${section.paragraphs.map((paragraph) => `<li>${escapeHtml(paragraph)}</li>`).join("")}</ul>
           <div class="section-formulas">${section.formulas.map((formula) => `<code>${escapeHtml(formula)}</code>`).join("")}</div>
         </div>
-        ${vectorDiagram(section.diagram)}
+        ${theoryDiagram(section.diagram)}
       </div>
       <div class="example-row">${renderTheoryExample(section.example)}${renderTheoryExample(section.secondary_example, true)}</div>
       <p class="exam-note"><b>На ЕГЭ</b>${escapeHtml(section.exam_note)}</p>

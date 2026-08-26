@@ -116,8 +116,7 @@ _HOMEWORK_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
         },
         {
             "prompt": (
-                "Даны векторы a = (4; 7) и b = (−1; 3). "
-                "Найдите сумму координат вектора a + b."
+                "Даны векторы a = (4; 7) и b = (−1; 3). Найдите сумму координат вектора a + b."
             ),
             "answer_aliases": ["13", "13.0", "13,0"],
             "explanation": "a + b = (3; 10), сумма координат равна 13.",
@@ -126,8 +125,7 @@ _HOMEWORK_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
         },
         {
             "prompt": (
-                "Даны векторы a = (9; 2) и b = (3; −4). "
-                "Найдите сумму координат вектора a − b."
+                "Даны векторы a = (9; 2) и b = (3; −4). Найдите сумму координат вектора a − b."
             ),
             "answer_aliases": ["12", "12.0", "12,0"],
             "explanation": "a − b = (6; 6), сумма координат равна 12.",
@@ -136,8 +134,7 @@ _HOMEWORK_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
         },
         {
             "prompt": (
-                "Даны векторы a = (4; −1) и b = (2; 3). "
-                "Найдите сумму координат вектора 2a + b."
+                "Даны векторы a = (4; −1) и b = (2; 3). Найдите сумму координат вектора 2a + b."
             ),
             "answer_aliases": ["11", "11.0", "11,0"],
             "explanation": "2a + b = (8; −2) + (2; 3) = (10; 1), сумма равна 11.",
@@ -146,8 +143,7 @@ _HOMEWORK_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
         },
         {
             "prompt": (
-                "Даны векторы a = (7; 5) и b = (3; 1). "
-                "Найдите квадрат длины вектора a − 2b."
+                "Даны векторы a = (7; 5) и b = (3; 1). Найдите квадрат длины вектора a − 2b."
             ),
             "answer_aliases": ["10", "10.0", "10,0"],
             "explanation": "a − 2b = (1; 3), поэтому |a − 2b|² = 1 + 9 = 10.",
@@ -156,8 +152,7 @@ _HOMEWORK_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
         },
         {
             "prompt": (
-                "Даны векторы a = (−3; 6) и b = (5; 2). "
-                "Найдите скалярное произведение a · b."
+                "Даны векторы a = (−3; 6) и b = (5; 2). Найдите скалярное произведение a · b."
             ),
             "answer_aliases": ["-3", "−3", "-3.0", "-3,0"],
             "explanation": "a · b = (−3) · 5 + 6 · 2 = −15 + 12 = −3.",
@@ -166,8 +161,7 @@ _HOMEWORK_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
         },
         {
             "prompt": (
-                "Даны векторы a = (2; 7) и b = (7; −2). "
-                "Найдите угол между векторами в градусах."
+                "Даны векторы a = (2; 7) и b = (7; −2). Найдите угол между векторами в градусах."
             ),
             "answer_aliases": ["90", "90.0", "90,0"],
             "explanation": "a · b = 14 − 14 = 0, поэтому угол между векторами равен 90°.",
@@ -195,10 +189,7 @@ _HOMEWORK_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
             "source": _sdamgia_source("670261"),
         },
         {
-            "prompt": (
-                "Даны векторы a = (6; 8) и b = (8; 6). "
-                "Найдите косинус угла между ними."
-            ),
+            "prompt": ("Даны векторы a = (6; 8) и b = (8; 6). Найдите косинус угла между ними."),
             "answer_aliases": ["0.96", "0,96", "24/25"],
             "explanation": "a · b = 96, |a| = |b| = 10, поэтому cos α = 96 / 100 = 0,96.",
             "estimated_minutes": 5,
@@ -214,7 +205,311 @@ _HOMEWORK_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
             "estimated_minutes": 5,
             "source": _sdamgia_source("649918"),
         },
-    ]
+    ],
+    "short-geometry:geometry": [
+        {
+            "title": "Прямоугольный треугольник",
+            "exam_number": 1,
+            "codifier_code": "7.1",
+            "prompt": "Катеты прямоугольного треугольника равны 8 и 15. Найдите гипотенузу.",
+            "answer_aliases": ["17", "17.0", "17,0"],
+            "explanation": "c = √(8² + 15²) = √289 = 17.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("53823"),
+        },
+        {
+            "title": "Площадь треугольника",
+            "exam_number": 1,
+            "codifier_code": "7.1",
+            "prompt": "Две стороны треугольника равны 12 и 10, угол между ними равен 30°. Найдите площадь.",
+            "answer_aliases": ["30", "30.0", "30,0"],
+            "explanation": "S = 1/2 · 12 · 10 · sin 30° = 60 · 1/2 = 30.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("55261"),
+        },
+        {
+            "title": "Равнобедренный треугольник",
+            "exam_number": 1,
+            "codifier_code": "7.1",
+            "prompt": "Боковые стороны равнобедренного треугольника равны 10, основание равно 12. Найдите площадь.",
+            "answer_aliases": ["48", "48.0", "48,0"],
+            "explanation": "Высота равна √(10² − 6²) = 8, поэтому S = 1/2 · 12 · 8 = 48.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("53823"),
+        },
+        {
+            "title": "Параллелограмм",
+            "exam_number": 1,
+            "codifier_code": "7.1",
+            "prompt": "Основание параллелограмма равно 15, высота к нему равна 6. Найдите площадь.",
+            "answer_aliases": ["90", "90.0", "90,0"],
+            "explanation": "S = a · h = 15 · 6 = 90.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("259873"),
+        },
+        {
+            "title": "Трапеция",
+            "exam_number": 1,
+            "codifier_code": "7.1",
+            "prompt": "Основания трапеции равны 10 и 18, высота равна 4. Найдите площадь.",
+            "answer_aliases": ["56", "56.0", "56,0"],
+            "explanation": "S = (10 + 18) / 2 · 4 = 14 · 4 = 56.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27821"),
+        },
+        {
+            "title": "Прямоугольник",
+            "exam_number": 1,
+            "codifier_code": "7.1",
+            "prompt": "Диагональ прямоугольника равна 10, одна сторона равна 6. Найдите площадь прямоугольника.",
+            "answer_aliases": ["48", "48.0", "48,0"],
+            "explanation": "Вторая сторона равна √(10² − 6²) = 8, поэтому S = 6 · 8 = 48.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("259873"),
+        },
+        {
+            "title": "Длина окружности",
+            "exam_number": 1,
+            "codifier_code": "7.2",
+            "prompt": "Радиус окружности равен 7. Найдите длину окружности, делённую на π.",
+            "answer_aliases": ["14", "14.0", "14,0"],
+            "explanation": "L / π = 2R = 14.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("55679"),
+        },
+        {
+            "title": "Сектор круга",
+            "exam_number": 1,
+            "codifier_code": "7.2",
+            "prompt": "Радиус круга равен 6, угол сектора равен 90°. Найдите площадь сектора, делённую на π.",
+            "answer_aliases": ["9", "9.0", "9,0"],
+            "explanation": "S / π = 90 / 360 · 6² = 9.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("55679"),
+        },
+        {
+            "title": "Касательная к окружности",
+            "exam_number": 1,
+            "codifier_code": "7.2",
+            "prompt": "Расстояние от точки P до центра окружности равно 10, радиус равен 6. Найдите длину касательной из P.",
+            "answer_aliases": ["8", "8.0", "8,0"],
+            "explanation": "Касательная перпендикулярна радиусу: PT = √(10² − 6²) = 8.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("52207"),
+        },
+        {
+            "title": "Куб",
+            "exam_number": 3,
+            "codifier_code": "7.3",
+            "prompt": "Площадь поверхности куба равна 54. Найдите ребро куба.",
+            "answer_aliases": ["3", "3.0", "3,0"],
+            "explanation": "6a² = 54, поэтому a² = 9 и a = 3.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27055"),
+        },
+        {
+            "title": "Прямоугольный параллелепипед",
+            "exam_number": 3,
+            "codifier_code": "7.3",
+            "prompt": "Объём прямоугольного параллелепипеда равен 120, площадь одной грани равна 30. Найдите перпендикулярное этой грани ребро.",
+            "answer_aliases": ["4", "4.0", "4,0"],
+            "explanation": "V = Sграни · h, поэтому h = 120 / 30 = 4.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("73455"),
+        },
+        {
+            "title": "Призма",
+            "exam_number": 3,
+            "codifier_code": "7.3",
+            "prompt": "Площадь основания прямой призмы равна 25, высота равна 6. Найдите объём.",
+            "answer_aliases": ["150", "150.0", "150,0"],
+            "explanation": "V = Sосн · h = 25 · 6 = 150.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27082"),
+        },
+        {
+            "title": "Цилиндр",
+            "exam_number": 3,
+            "codifier_code": "7.4",
+            "prompt": "Радиус цилиндра равен 4, высота равна 5. Найдите объём цилиндра, делённый на π.",
+            "answer_aliases": ["80", "80.0", "80,0"],
+            "explanation": "V / π = R²h = 4² · 5 = 80.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("5037"),
+        },
+        {
+            "title": "Конус",
+            "exam_number": 3,
+            "codifier_code": "7.4",
+            "prompt": "Радиус основания конуса равен 3, высота равна 12. Найдите объём конуса, делённый на π.",
+            "answer_aliases": ["36", "36.0", "36,0"],
+            "explanation": "V / π = 1/3 · 3² · 12 = 36.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("269293"),
+        },
+        {
+            "title": "Шар",
+            "exam_number": 3,
+            "codifier_code": "7.4",
+            "prompt": "Радиус шара равен 3. Найдите объём шара, делённый на π.",
+            "answer_aliases": ["36", "36.0", "36,0"],
+            "explanation": "V / π = 4/3 · 3³ = 36.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("269293"),
+        },
+    ],
+    "probability-models:probability": [
+        {
+            "title": "Равновероятные исходы",
+            "exam_number": 4,
+            "codifier_code": "6.3",
+            "prompt": "Из 30 билетов 9 выигрышных. Найдите вероятность выиграть при выборе одного билета.",
+            "answer_aliases": ["0.3", "0,3", "3/10"],
+            "explanation": "P = 9 / 30 = 0,3.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("320181"),
+        },
+        {
+            "title": "Случайное число",
+            "exam_number": 4,
+            "codifier_code": "6.3",
+            "prompt": "Наугад выбирают целое число от 1 до 20. Найдите вероятность, что оно делится на 5.",
+            "answer_aliases": ["0.2", "0,2", "1/5"],
+            "explanation": "Подходят 4 числа: 5, 10, 15 и 20. P = 4 / 20 = 0,2.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("320208"),
+        },
+        {
+            "title": "Случайное место",
+            "exam_number": 4,
+            "codifier_code": "6.3",
+            "prompt": "В зале 32 места, из них 8 находятся у прохода. Найдите вероятность получить место у прохода.",
+            "answer_aliases": ["0.25", "0,25", "1/4"],
+            "explanation": "P = 8 / 32 = 0,25.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("660787"),
+        },
+        {
+            "title": "Противоположное событие",
+            "exam_number": 4,
+            "codifier_code": "6.3",
+            "prompt": "Вероятность неисправности прибора равна 0,04. Найдите вероятность, что прибор исправен.",
+            "answer_aliases": ["0.96", "0,96"],
+            "explanation": "P(исправен) = 1 − 0,04 = 0,96.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("320210"),
+        },
+        {
+            "title": "Вложенные события",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "P(X < 30) = 0,91, а P(X < 20) = 0,63. Найдите P(20 ≤ X < 30).",
+            "answer_aliases": ["0.28", "0,28"],
+            "explanation": "Меньший диапазон вложен в больший: 0,91 − 0,63 = 0,28.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("685348"),
+        },
+        {
+            "title": "Противоположное событие",
+            "exam_number": 4,
+            "codifier_code": "6.3",
+            "prompt": "Вероятность промаха равна 0,18. Найдите вероятность попадания.",
+            "answer_aliases": ["0.82", "0,82"],
+            "explanation": "Попадание и промах противоположны: 1 − 0,18 = 0,82.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("320210"),
+        },
+        {
+            "title": "Произведение вероятностей",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "Два независимых датчика срабатывают с вероятностями 0,7 и 0,6. Найдите вероятность срабатывания обоих.",
+            "answer_aliases": ["0.42", "0,42"],
+            "explanation": "P = 0,7 · 0,6 = 0,42.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("320210"),
+        },
+        {
+            "title": "Три независимых испытания",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "Вероятность правильного ответа в каждом из трёх независимых раундов равна 0,8. Найдите вероятность трёх правильных ответов.",
+            "answer_aliases": ["0.512", "0,512"],
+            "explanation": "P = 0,8³ = 0,512.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("320210"),
+        },
+        {
+            "title": "Две независимые неудачи",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "Вероятности отказа двух независимых устройств равны 0,1 и 0,2. Найдите вероятность отказа обоих.",
+            "answer_aliases": ["0.02", "0,02"],
+            "explanation": "P = 0,1 · 0,2 = 0,02.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("320210"),
+        },
+        {
+            "title": "Несовместные события",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "Вероятности двух несовместных событий равны 0,18 и 0,27. Найдите вероятность наступления одного из них.",
+            "answer_aliases": ["0.45", "0,45"],
+            "explanation": "Для несовместных событий вероятности складываются: 0,18 + 0,27 = 0,45.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("320199"),
+        },
+        {
+            "title": "Хотя бы один успех",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "Вероятности успеха в двух независимых испытаниях равны 0,5 и 0,6. Найдите вероятность хотя бы одного успеха.",
+            "answer_aliases": ["0.8", "0,8"],
+            "explanation": "P = 1 − (1 − 0,5)(1 − 0,6) = 1 − 0,2 = 0,8.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("320199"),
+        },
+        {
+            "title": "Объединение событий",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "P(A) = 0,55, P(B) = 0,4, P(A ∩ B) = 0,25. Найдите P(A ∪ B).",
+            "answer_aliases": ["0.7", "0,7"],
+            "explanation": "P(A ∪ B) = 0,55 + 0,4 − 0,25 = 0,7.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("321893"),
+        },
+        {
+            "title": "Полная вероятность",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "80% деталей выпускает линия A с браком 1%, остальные — линия B с браком 6%. Найдите вероятность брака случайной детали.",
+            "answer_aliases": ["0.02", "0,02"],
+            "explanation": "P = 0,8 · 0,01 + 0,2 · 0,06 = 0,008 + 0,012 = 0,02.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("320751"),
+        },
+        {
+            "title": "Выбор без возвращения",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "В коробке 2 красных и 3 синих шара. Берут два шара без возвращения. Найдите вероятность получить шары разных цветов.",
+            "answer_aliases": ["0.6", "0,6", "3/5"],
+            "explanation": "P = 2/5 · 3/4 + 3/5 · 2/4 = 0,3 + 0,3 = 0,6.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("508863"),
+        },
+        {
+            "title": "Два выбора без возвращения",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "В коробке 3 белых и 2 чёрных шара. Берут два шара без возвращения. Найдите вероятность, что оба шара чёрные.",
+            "answer_aliases": ["0.1", "0,1", "1/10"],
+            "explanation": "P = 2/5 · 1/4 = 1/10 = 0,1.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("508863"),
+        },
+    ],
 }
 _PRACTICE_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
     "short-geometry:vectors": [
@@ -294,8 +589,7 @@ _PRACTICE_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
         },
         {
             "prompt": (
-                "Даны векторы a = (−4; 9) и b = (7; −2). "
-                "Найдите сумму координат вектора a + b."
+                "Даны векторы a = (−4; 9) и b = (7; −2). Найдите сумму координат вектора a + b."
             ),
             "answer_aliases": ["10", "10.0", "10,0"],
             "explanation": "a + b = (3; 7), сумма координат равна 10.",
@@ -304,8 +598,7 @@ _PRACTICE_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
         },
         {
             "prompt": (
-                "Даны векторы a = (5; −1) и b = (−2; 5). "
-                "Найдите квадрат длины вектора a + b."
+                "Даны векторы a = (5; −1) и b = (−2; 5). Найдите квадрат длины вектора a + b."
             ),
             "answer_aliases": ["25", "25.0", "25,0"],
             "explanation": "a + b = (3; 4), поэтому |a + b|² = 3² + 4² = 25.",
@@ -314,8 +607,7 @@ _PRACTICE_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
         },
         {
             "prompt": (
-                "Даны векторы a = (8; 3) и b = (−5; 7). "
-                "Найдите сумму координат вектора a − b."
+                "Даны векторы a = (8; 3) и b = (−5; 7). Найдите сумму координат вектора a − b."
             ),
             "answer_aliases": ["9", "9.0", "9,0"],
             "explanation": "a − b = (13; −4), сумма координат равна 9.",
@@ -324,8 +616,7 @@ _PRACTICE_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
         },
         {
             "prompt": (
-                "Даны векторы a = (3; 2) и b = (1; −4). "
-                "Найдите квадрат длины вектора 2a − b."
+                "Даны векторы a = (3; 2) и b = (1; −4). Найдите квадрат длины вектора 2a − b."
             ),
             "answer_aliases": ["89", "89.0", "89,0"],
             "explanation": "2a − b = (6; 4) − (1; −4) = (5; 8), квадрат длины равен 89.",
@@ -353,10 +644,7 @@ _PRACTICE_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
             "source": _sdamgia_source("27740"),
         },
         {
-            "prompt": (
-                "Векторы a = (x; 4) и b = (2; −3) перпендикулярны. "
-                "Найдите x."
-            ),
+            "prompt": ("Векторы a = (x; 4) и b = (2; −3) перпендикулярны. Найдите x."),
             "answer_aliases": ["6", "6.0", "6,0"],
             "explanation": "Для перпендикулярных векторов a · b = 0: 2x − 12 = 0, откуда x = 6.",
             "estimated_minutes": 5,
@@ -373,10 +661,7 @@ _PRACTICE_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
             "source": _sdamgia_source("27741"),
         },
         {
-            "prompt": (
-                "Даны векторы a = (6; 7) и b = (1; 2). "
-                "Найдите длину вектора a − 2b."
-            ),
+            "prompt": ("Даны векторы a = (6; 7) и b = (1; 2). Найдите длину вектора a − 2b."),
             "answer_aliases": ["5", "5.0", "5,0"],
             "explanation": "a − 2b = (6; 7) − (2; 4) = (4; 3), поэтому длина равна 5.",
             "estimated_minutes": 5,
@@ -394,8 +679,7 @@ _PRACTICE_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
         },
         {
             "prompt": (
-                "Даны векторы a = (5; 0) и b = (−3; 4). "
-                "Найдите косинус угла между векторами a и b."
+                "Даны векторы a = (5; 0) и b = (−3; 4). Найдите косинус угла между векторами a и b."
             ),
             "answer_aliases": ["-0.6", "−0.6", "-0,6", "-3/5", "−3/5"],
             "explanation": "a · b = −15, |a| = |b| = 5, поэтому cos α = −15 / 25 = −0,6.",
@@ -412,7 +696,411 @@ _PRACTICE_TASK_OVERRIDES: dict[str, list[dict[str, object]]] = {
             "estimated_minutes": 5,
             "source": _sdamgia_source("649918"),
         },
-    ]
+    ],
+    "short-geometry:geometry": [
+        {
+            "title": "Прямоугольный треугольник",
+            "exam_number": 1,
+            "codifier_code": "7.1",
+            "prompt": "Катеты прямоугольного треугольника равны 9 и 12. Найдите гипотенузу.",
+            "answer_aliases": ["15", "15.0", "15,0"],
+            "explanation": "c = √(9² + 12²) = √225 = 15.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("53823"),
+        },
+        {
+            "title": "Площадь треугольника",
+            "exam_number": 1,
+            "codifier_code": "7.1",
+            "prompt": "Две стороны треугольника равны 10 и 14, угол между ними равен 30°. Найдите площадь.",
+            "answer_aliases": ["35", "35.0", "35,0"],
+            "explanation": "S = 1/2 · 10 · 14 · sin 30° = 70 · 1/2 = 35.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("55261"),
+        },
+        {
+            "title": "Равнобедренный треугольник",
+            "exam_number": 1,
+            "codifier_code": "7.1",
+            "prompt": "Боковые стороны равнобедренного треугольника равны 13, основание равно 10. Найдите площадь.",
+            "answer_aliases": ["60", "60.0", "60,0"],
+            "explanation": "Высота равна √(13² − 5²) = 12, поэтому S = 1/2 · 10 · 12 = 60.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("53823"),
+        },
+        {
+            "title": "Описанная окружность",
+            "exam_number": 1,
+            "codifier_code": "7.1",
+            "prompt": "Гипотенуза прямоугольного треугольника равна 26. Найдите радиус описанной окружности.",
+            "answer_aliases": ["13", "13.0", "13,0"],
+            "explanation": "Центр окружности — середина гипотенузы, поэтому R = 26 / 2 = 13.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("53823"),
+        },
+        {
+            "title": "Параллелограмм",
+            "exam_number": 1,
+            "codifier_code": "7.1",
+            "prompt": "Основание параллелограмма равно 12, высота к нему равна 7. Найдите площадь.",
+            "answer_aliases": ["84", "84.0", "84,0"],
+            "explanation": "S = a · h = 12 · 7 = 84.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("259873"),
+        },
+        {
+            "title": "Трапеция",
+            "exam_number": 1,
+            "codifier_code": "7.1",
+            "prompt": "Основания трапеции равны 8 и 14, высота равна 5. Найдите площадь.",
+            "answer_aliases": ["55", "55.0", "55,0"],
+            "explanation": "S = (8 + 14) / 2 · 5 = 11 · 5 = 55.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27821"),
+        },
+        {
+            "title": "Прямоугольник",
+            "exam_number": 1,
+            "codifier_code": "7.1",
+            "prompt": "Диагональ прямоугольника равна 13, одна сторона равна 5. Найдите площадь прямоугольника.",
+            "answer_aliases": ["60", "60.0", "60,0"],
+            "explanation": "Вторая сторона равна √(13² − 5²) = 12, поэтому S = 5 · 12 = 60.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("259873"),
+        },
+        {
+            "title": "Средняя линия трапеции",
+            "exam_number": 1,
+            "codifier_code": "7.1",
+            "prompt": "Основания трапеции равны 6 и 16. Найдите больший отрезок, на который диагональ делит среднюю линию.",
+            "answer_aliases": ["8", "8.0", "8,0"],
+            "explanation": "Больший отрезок равен половине большего основания: 16 / 2 = 8.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27821"),
+        },
+        {
+            "title": "Длина окружности",
+            "exam_number": 1,
+            "codifier_code": "7.2",
+            "prompt": "Радиус окружности равен 6. Найдите длину окружности, делённую на π.",
+            "answer_aliases": ["12", "12.0", "12,0"],
+            "explanation": "L / π = 2R = 12.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("55679"),
+        },
+        {
+            "title": "Сектор круга",
+            "exam_number": 1,
+            "codifier_code": "7.2",
+            "prompt": "Радиус круга равен 9, угол сектора равен 40°. Найдите площадь сектора, делённую на π.",
+            "answer_aliases": ["9", "9.0", "9,0"],
+            "explanation": "S / π = 40 / 360 · 9² = 9.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("55679"),
+        },
+        {
+            "title": "Вписанный угол",
+            "exam_number": 1,
+            "codifier_code": "7.2",
+            "prompt": "Вписанный угол опирается на дугу величиной 110°. Найдите этот угол.",
+            "answer_aliases": ["55", "55.0", "55,0"],
+            "explanation": "Вписанный угол равен половине дуги: 110° / 2 = 55°.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27878"),
+        },
+        {
+            "title": "Касательная к окружности",
+            "exam_number": 1,
+            "codifier_code": "7.2",
+            "prompt": "Расстояние от точки P до центра окружности равно 13, радиус равен 5. Найдите длину касательной из P.",
+            "answer_aliases": ["12", "12.0", "12,0"],
+            "explanation": "Касательная перпендикулярна радиусу: PT = √(13² − 5²) = 12.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("52207"),
+        },
+        {
+            "title": "Куб",
+            "exam_number": 3,
+            "codifier_code": "7.3",
+            "prompt": "Ребро куба равно 4. Найдите объём куба.",
+            "answer_aliases": ["64", "64.0", "64,0"],
+            "explanation": "V = a³ = 4³ = 64.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27056"),
+        },
+        {
+            "title": "Диагональ параллелепипеда",
+            "exam_number": 3,
+            "codifier_code": "7.3",
+            "prompt": "Рёбра прямоугольного параллелепипеда равны 3, 4 и 12. Найдите его диагональ.",
+            "answer_aliases": ["13", "13.0", "13,0"],
+            "explanation": "d = √(3² + 4² + 12²) = √169 = 13.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("73455"),
+        },
+        {
+            "title": "Призма",
+            "exam_number": 3,
+            "codifier_code": "7.3",
+            "prompt": "Площадь основания прямой призмы равна 18, высота равна 7. Найдите объём.",
+            "answer_aliases": ["126", "126.0", "126,0"],
+            "explanation": "V = Sосн · h = 18 · 7 = 126.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27082"),
+        },
+        {
+            "title": "Пирамида",
+            "exam_number": 3,
+            "codifier_code": "7.3",
+            "prompt": "Площадь основания пирамиды равна 48, высота равна 9. Найдите объём.",
+            "answer_aliases": ["144", "144.0", "144,0"],
+            "explanation": "V = 1/3 · 48 · 9 = 144.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("324459"),
+        },
+        {
+            "title": "Цилиндр",
+            "exam_number": 3,
+            "codifier_code": "7.4",
+            "prompt": "Радиус цилиндра равен 3, высота равна 8. Найдите объём цилиндра, делённый на π.",
+            "answer_aliases": ["72", "72.0", "72,0"],
+            "explanation": "V / π = R²h = 3² · 8 = 72.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("5037"),
+        },
+        {
+            "title": "Боковая поверхность цилиндра",
+            "exam_number": 3,
+            "codifier_code": "7.4",
+            "prompt": "Радиус цилиндра равен 5, высота равна 6. Найдите площадь боковой поверхности, делённую на π.",
+            "answer_aliases": ["60", "60.0", "60,0"],
+            "explanation": "Sбок / π = 2Rh = 2 · 5 · 6 = 60.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27173"),
+        },
+        {
+            "title": "Конус",
+            "exam_number": 3,
+            "codifier_code": "7.4",
+            "prompt": "Радиус основания конуса равен 6, высота равна 4. Найдите объём конуса, делённый на π.",
+            "answer_aliases": ["48", "48.0", "48,0"],
+            "explanation": "V / π = 1/3 · 6² · 4 = 48.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("269293"),
+        },
+        {
+            "title": "Поверхность шара",
+            "exam_number": 3,
+            "codifier_code": "7.4",
+            "prompt": "Радиус шара равен 3. Найдите площадь поверхности шара, делённую на π.",
+            "answer_aliases": ["36", "36.0", "36,0"],
+            "explanation": "S / π = 4R² = 4 · 3² = 36.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("27174"),
+        },
+    ],
+    "probability-models:probability": [
+        {
+            "title": "Доля выбранных участников",
+            "exam_number": 4,
+            "codifier_code": "6.3",
+            "prompt": "Из 24 участников случайно выбирают 6 человек. Найдите вероятность выбора конкретного участника.",
+            "answer_aliases": ["0.25", "0,25", "1/4"],
+            "explanation": "P = 6 / 24 = 0,25.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("320181"),
+        },
+        {
+            "title": "Случайное число",
+            "exam_number": 4,
+            "codifier_code": "6.3",
+            "prompt": "Наугад выбирают целое число от 1 до 10. Найдите вероятность, что оно чётное.",
+            "answer_aliases": ["0.5", "0,5", "1/2"],
+            "explanation": "Подходят 5 чисел из 10: P = 5 / 10 = 0,5.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("320208"),
+        },
+        {
+            "title": "Место у окна",
+            "exam_number": 4,
+            "codifier_code": "6.3",
+            "prompt": "В вагоне 48 мест, из них 12 у окна. Найдите вероятность получить место у окна.",
+            "answer_aliases": ["0.25", "0,25", "1/4"],
+            "explanation": "P = 12 / 48 = 0,25.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("660787"),
+        },
+        {
+            "title": "Случайный выбор",
+            "exam_number": 4,
+            "codifier_code": "6.3",
+            "prompt": "Из 25 заявок случайно выбирают 5. Найдите вероятность выбора заранее указанной заявки.",
+            "answer_aliases": ["0.2", "0,2", "1/5"],
+            "explanation": "Все заявки равноправны: P = 5 / 25 = 0,2.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("685348"),
+        },
+        {
+            "title": "Противоположное событие",
+            "exam_number": 4,
+            "codifier_code": "6.3",
+            "prompt": "Вероятность брака детали равна 0,09. Найдите вероятность, что деталь исправна.",
+            "answer_aliases": ["0.91", "0,91"],
+            "explanation": "P(исправна) = 1 − 0,09 = 0,91.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("320210"),
+        },
+        {
+            "title": "Разность вложенных событий",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "P(X < 40) = 0,88, а P(X < 25) = 0,57. Найдите P(25 ≤ X < 40).",
+            "answer_aliases": ["0.31", "0,31"],
+            "explanation": "P = 0,88 − 0,57 = 0,31.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("685348"),
+        },
+        {
+            "title": "Вероятность отсутствия события",
+            "exam_number": 4,
+            "codifier_code": "6.3",
+            "prompt": "Вероятность дождя равна 0,27. Найдите вероятность, что дождя не будет.",
+            "answer_aliases": ["0.73", "0,73"],
+            "explanation": "P(нет дождя) = 1 − 0,27 = 0,73.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("320210"),
+        },
+        {
+            "title": "Вероятность диапазона",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "P(Y ≤ 80) = 0,95, а P(Y ≤ 50) = 0,62. Найдите P(51 ≤ Y ≤ 80).",
+            "answer_aliases": ["0.33", "0,33"],
+            "explanation": "События вложены: P = 0,95 − 0,62 = 0,33.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("685348"),
+        },
+        {
+            "title": "Два независимых события",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "Независимые события A и B имеют вероятности 0,8 и 0,75. Найдите вероятность их одновременного наступления.",
+            "answer_aliases": ["0.6", "0,6"],
+            "explanation": "P(A ∩ B) = 0,8 · 0,75 = 0,6.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("320210"),
+        },
+        {
+            "title": "Два исправных изделия",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "Вероятность исправности каждого из двух независимых изделий равна 0,97. Найдите вероятность исправности обоих.",
+            "answer_aliases": ["0.9409", "0,9409"],
+            "explanation": "P = 0,97² = 0,9409.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("320210"),
+        },
+        {
+            "title": "Заданный порядок исходов",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "Честную монету бросают трижды. Найдите вероятность последовательности орёл, решка, орёл.",
+            "answer_aliases": ["0.125", "0,125", "1/8"],
+            "explanation": "P = 1/2 · 1/2 · 1/2 = 1/8 = 0,125.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("320210"),
+        },
+        {
+            "title": "Три независимых события",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "Вероятности успеха в трёх независимых испытаниях равны 0,9, 0,8 и 0,7. Найдите вероятность успеха во всех трёх.",
+            "answer_aliases": ["0.504", "0,504"],
+            "explanation": "P = 0,9 · 0,8 · 0,7 = 0,504.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("321893"),
+        },
+        {
+            "title": "Сумма несовместных событий",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "События A и B несовместны, P(A) = 0,24, P(B) = 0,36. Найдите P(A ∪ B).",
+            "answer_aliases": ["0.6", "0,6"],
+            "explanation": "P(A ∪ B) = 0,24 + 0,36 = 0,6.",
+            "estimated_minutes": 4,
+            "source": _sdamgia_source("320199"),
+        },
+        {
+            "title": "Хотя бы одно событие",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "Вероятности успеха в двух независимых испытаниях равны 0,3 и 0,4. Найдите вероятность хотя бы одного успеха.",
+            "answer_aliases": ["0.58", "0,58"],
+            "explanation": "P = 1 − 0,7 · 0,6 = 0,58.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("320199"),
+        },
+        {
+            "title": "Совместные события",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "P(A) = 0,65, P(B) = 0,45, P(A ∩ B) = 0,30. Найдите P(A ∪ B).",
+            "answer_aliases": ["0.8", "0,8"],
+            "explanation": "P(A ∪ B) = 0,65 + 0,45 − 0,30 = 0,8.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("321893"),
+        },
+        {
+            "title": "Ровно один успех",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "Вероятности успеха в двух независимых испытаниях равны 0,7 и 0,4. Найдите вероятность ровно одного успеха.",
+            "answer_aliases": ["0.54", "0,54"],
+            "explanation": "P = 0,7 · 0,6 + 0,3 · 0,4 = 0,42 + 0,12 = 0,54.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("320199"),
+        },
+        {
+            "title": "Полная вероятность брака",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "60% продукции выпускает линия A с браком 2%, остальное — линия B с браком 7%. Найдите вероятность брака случайного изделия.",
+            "answer_aliases": ["0.04", "0,04"],
+            "explanation": "P = 0,6 · 0,02 + 0,4 · 0,07 = 0,012 + 0,028 = 0,04.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("320751"),
+        },
+        {
+            "title": "Два пути к успеху",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "Алгоритм выбирает путь A с вероятностью 0,4 и путь B с вероятностью 0,6. Успех на них равен 0,9 и 0,5. Найдите общую вероятность успеха.",
+            "answer_aliases": ["0.66", "0,66"],
+            "explanation": "P = 0,4 · 0,9 + 0,6 · 0,5 = 0,36 + 0,30 = 0,66.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("320751"),
+        },
+        {
+            "title": "Разные цвета без возвращения",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "В коробке 3 красных и 2 синих шара. Берут два шара без возвращения. Найдите вероятность получить шары разных цветов.",
+            "answer_aliases": ["0.6", "0,6", "3/5"],
+            "explanation": "P = 3/5 · 2/4 + 2/5 · 3/4 = 0,3 + 0,3 = 0,6.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("508863"),
+        },
+        {
+            "title": "Два шара без возвращения",
+            "exam_number": 5,
+            "codifier_code": "6.3",
+            "prompt": "В коробке 3 белых и 1 чёрный шар. Берут два шара без возвращения. Найдите вероятность, что оба шара белые.",
+            "answer_aliases": ["0.5", "0,5", "1/2"],
+            "explanation": "P = 3/4 · 2/3 = 1/2 = 0,5.",
+            "estimated_minutes": 5,
+            "source": _sdamgia_source("508863"),
+        },
+    ],
 }
 
 _PRACTICE_SUBTOPIC_IDS: dict[str, list[list[str]]] = {
@@ -437,7 +1125,105 @@ _PRACTICE_SUBTOPIC_IDS: dict[str, list[list[str]]] = {
         ["scalar-product"],
         ["scalar-product"],
         ["scalar-product"],
-    ]
+    ],
+    "short-geometry:geometry": [
+        ["geometry-triangles"],
+        ["geometry-triangles"],
+        ["geometry-triangles"],
+        ["geometry-triangles"],
+        ["geometry-quadrilaterals"],
+        ["geometry-quadrilaterals"],
+        ["geometry-quadrilaterals"],
+        ["geometry-quadrilaterals"],
+        ["geometry-circles"],
+        ["geometry-circles"],
+        ["geometry-circles"],
+        ["geometry-circles"],
+        ["geometry-polyhedra"],
+        ["geometry-polyhedra"],
+        ["geometry-polyhedra"],
+        ["geometry-polyhedra"],
+        ["geometry-round-solids"],
+        ["geometry-round-solids"],
+        ["geometry-round-solids"],
+        ["geometry-round-solids"],
+    ],
+    "probability-models:probability": [
+        ["probability-outcomes"],
+        ["probability-outcomes"],
+        ["probability-outcomes"],
+        ["probability-outcomes"],
+        ["probability-complement"],
+        ["probability-complement"],
+        ["probability-complement"],
+        ["probability-complement"],
+        ["probability-product"],
+        ["probability-product"],
+        ["probability-product"],
+        ["probability-product"],
+        ["probability-union"],
+        ["probability-union"],
+        ["probability-union"],
+        ["probability-union"],
+        ["probability-tree"],
+        ["probability-tree"],
+        ["probability-tree"],
+        ["probability-tree"],
+    ],
+}
+
+_HOMEWORK_SUBTOPIC_IDS: dict[str, list[list[str]]] = {
+    "short-geometry:vectors": [
+        ["vector-length"],
+        ["vector-length"],
+        ["vector-coordinates"],
+        ["vector-coordinates"],
+        ["vector-coordinates"],
+        ["vector-operations"],
+        ["vector-operations"],
+        ["vector-operations"],
+        ["vector-operations", "vector-length"],
+        ["scalar-product"],
+        ["scalar-product"],
+        ["scalar-product"],
+        ["scalar-product"],
+        ["scalar-product"],
+        ["scalar-product"],
+    ],
+    "short-geometry:geometry": [
+        ["geometry-triangles"],
+        ["geometry-triangles"],
+        ["geometry-triangles"],
+        ["geometry-quadrilaterals"],
+        ["geometry-quadrilaterals"],
+        ["geometry-quadrilaterals"],
+        ["geometry-circles"],
+        ["geometry-circles"],
+        ["geometry-circles"],
+        ["geometry-polyhedra"],
+        ["geometry-polyhedra"],
+        ["geometry-polyhedra"],
+        ["geometry-round-solids"],
+        ["geometry-round-solids"],
+        ["geometry-round-solids"],
+    ],
+    "probability-models:probability": [
+        ["probability-outcomes"],
+        ["probability-outcomes"],
+        ["probability-outcomes"],
+        ["probability-complement"],
+        ["probability-complement"],
+        ["probability-complement"],
+        ["probability-product"],
+        ["probability-product"],
+        ["probability-product"],
+        ["probability-union"],
+        ["probability-union"],
+        ["probability-union"],
+        ["probability-tree"],
+        ["probability-tree"],
+        ["probability-tree"],
+    ],
 }
 
 
@@ -491,9 +1277,7 @@ def _public_task(task: dict[str, object], include_answer: bool = False) -> dict[
     return result
 
 
-def _practice_tasks(
-    unit_id: str, tasks: list[dict[str, object]]
-) -> list[dict[str, object]]:
+def _practice_tasks(unit_id: str, tasks: list[dict[str, object]]) -> list[dict[str, object]]:
     overrides = _PRACTICE_TASK_OVERRIDES.get(unit_id)
     if overrides:
         result = []
@@ -515,16 +1299,17 @@ def _practice_tasks(
     return result
 
 
-def _homework_tasks(
-    unit_id: str, tasks: list[dict[str, object]]
-) -> list[dict[str, object]]:
+def _homework_tasks(unit_id: str, tasks: list[dict[str, object]]) -> list[dict[str, object]]:
     overrides = _HOMEWORK_TASK_OVERRIDES.get(unit_id)
     if overrides:
         result = []
+        subtopic_mappings = _HOMEWORK_SUBTOPIC_IDS.get(unit_id, [])
         for index, override in enumerate(overrides):
             homework_task = deepcopy(tasks[-1])
             homework_task.update(override)
             homework_task["lesson_task_key"] = f"{unit_id}:homework:{index + 1}"
+            if index < len(subtopic_mappings):
+                homework_task["subtopic_ids"] = deepcopy(subtopic_mappings[index])
             result.append(homework_task)
         return result
     homework_task = deepcopy(tasks[-1])
@@ -541,8 +1326,7 @@ def _lesson_units() -> list[dict[str, object]]:
             tasks = [
                 task
                 for task in TASKS
-                if task["topic_id"] == topic_id
-                and int(task["exam_number"]) in stage_numbers
+                if task["topic_id"] == topic_id and int(task["exam_number"]) in stage_numbers
             ]
             if not tasks:
                 continue
@@ -757,7 +1541,9 @@ def _unit_subtopics(
             for index, task in related_tasks
         )
         theory_progress = 50 if bool(unit_state["theory_done"]) else 0
-        practice_progress = _scaled_progress(attempted_tasks, len(related_tasks), 50)
+        practice_progress = (
+            _scaled_progress(attempted_tasks, len(related_tasks), 50) if related_tasks else 0
+        )
         progress = min(100, theory_progress + practice_progress)
         result.append(
             {
@@ -836,16 +1622,15 @@ def get_current_lesson(session_id: str) -> dict[str, object]:
     attempts = _session_attempts(session_id)
     theory_completions = _session_theory_completions(session_id)
     units = _ordered_lesson_units(session_id, attempts, theory_completions)
-    states = [
-        _lesson_unit_state(unit, attempts, theory_completions)
-        for unit in units
-    ]
+    states = [_lesson_unit_state(unit, attempts, theory_completions) for unit in units]
     current_index = next(
         (index for index, unit_state in enumerate(states) if not unit_state["complete"]),
         None,
     )
     completed = sum(bool(unit_state["complete"]) for unit_state in states)
-    overall_progress = round(sum(_lesson_progress(unit_state) for unit_state in states) / len(states))
+    overall_progress = round(
+        sum(_lesson_progress(unit_state) for unit_state in states) / len(states)
+    )
     if current_index is None:
         return {
             "session_id": session_id,
@@ -860,9 +1645,7 @@ def get_current_lesson(session_id: str) -> dict[str, object]:
     unit_state = states[current_index]
     current_step = str(unit_state["current_step"])
     theory = deepcopy(unit["theory"])
-    practice_task = _public_task(
-        unit["practice_tasks"][int(unit_state["current_practice_index"])]
-    )
+    practice_task = _public_task(unit["practice_tasks"][int(unit_state["current_practice_index"])])
     homework_task = _public_task(unit["homework_task"])
     steps = [
         {
@@ -929,8 +1712,7 @@ def get_current_homework(session_id: str) -> dict[str, object]:
             (
                 item
                 for item in attempts
-                if item.get("lesson_unit_id") == unit["id"]
-                and item.get("mode") == "practice"
+                if item.get("lesson_unit_id") == unit["id"] and item.get("mode") == "practice"
             ),
             key=lambda item: str(item["created_at"]),
         )
@@ -964,8 +1746,7 @@ def get_current_homework(session_id: str) -> dict[str, object]:
         "total_tasks": unit_state["homework_total_tasks"],
         "current_task_number": int(unit_state["current_homework_index"]) + 1,
         "remaining_tasks": (
-            int(unit_state["homework_total_tasks"])
-            - int(unit_state["homework_attempted_tasks"])
+            int(unit_state["homework_total_tasks"]) - int(unit_state["homework_attempted_tasks"])
         ),
         "estimated_minutes": sum(
             int(task["estimated_minutes"])
@@ -1142,9 +1923,7 @@ def submit_attempt(
     if mode == "practice":
         lesson_before_attempt = get_current_lesson(session_id)
         lesson_unit = next(
-            unit
-            for unit in _lesson_units()
-            if unit["id"] == lesson_before_attempt.get("unit_id")
+            unit for unit in _lesson_units() if unit["id"] == lesson_before_attempt.get("unit_id")
         )
         lesson_task = next(
             item
@@ -1154,9 +1933,7 @@ def submit_attempt(
     elif mode == "homework":
         homework_before_attempt = get_current_homework(session_id)
         lesson_unit = next(
-            unit
-            for unit in _lesson_units()
-            if unit["id"] == homework_before_attempt.get("unit_id")
+            unit for unit in _lesson_units() if unit["id"] == homework_before_attempt.get("unit_id")
         )
         lesson_task = next(
             item
@@ -1164,9 +1941,7 @@ def submit_attempt(
             if item["lesson_task_key"] == lesson_task_key
         )
     accepted_answers = list(
-        lesson_task["answer_aliases"]
-        if isinstance(lesson_task, dict)
-        else task["answer_aliases"]
+        lesson_task["answer_aliases"] if isinstance(lesson_task, dict) else task["answer_aliases"]
     )
     is_correct = _matches(answer, accepted_answers)
     attempt = {
@@ -1178,9 +1953,7 @@ def submit_attempt(
         "mode": mode,
         "lesson_unit_id": lesson_unit_id,
         "lesson_task_key": (
-            lesson_task.get("lesson_task_key")
-            if isinstance(lesson_task, dict)
-            else None
+            lesson_task.get("lesson_task_key") if isinstance(lesson_task, dict) else None
         ),
         "created_at": datetime.now(UTC).isoformat(),
     }
@@ -1188,9 +1961,7 @@ def submit_attempt(
         _attempts.setdefault(session_id, []).append(attempt)
     topic = next(item for item in TOPICS if item["id"] == task["topic_id"])
     lesson_after_attempt = get_current_lesson(session_id) if mode != "diagnostic" else None
-    homework_after_attempt = (
-        get_current_homework(session_id) if mode != "diagnostic" else None
-    )
+    homework_after_attempt = get_current_homework(session_id) if mode != "diagnostic" else None
     practice_unit_complete = bool(
         mode == "practice"
         and isinstance(lesson_after_attempt, dict)
@@ -1210,9 +1981,7 @@ def submit_attempt(
         "earned_primary_score": int(task["max_primary_score"]) if is_correct else 0,
         "max_primary_score": task["max_primary_score"],
         "explanation": (
-            lesson_task["explanation"]
-            if isinstance(lesson_task, dict)
-            else task["explanation"]
+            lesson_task["explanation"] if isinstance(lesson_task, dict) else task["explanation"]
         ),
         "correct_answer": accepted_answers[0],
         "theory_id": task["theory_id"],
@@ -1282,9 +2051,7 @@ def _prediction(attempts: list[dict[str, object]]) -> dict[str, object]:
     for attempt in attempts:
         latest_by_task[str(attempt["task_id"])] = attempt
 
-    missing = [
-        int(task["exam_number"]) for task in TASKS if str(task["id"]) not in latest_by_task
-    ]
+    missing = [int(task["exam_number"]) for task in TASKS if str(task["id"]) not in latest_by_task]
     available = not missing
     primary = None
     if available:
@@ -1362,9 +2129,7 @@ def _week_activity(attempts: list[dict[str, object]]) -> list[dict[str, object]]
 
 
 def _study_streak(attempts: list[dict[str, object]]) -> int:
-    active_dates = {
-        datetime.fromisoformat(str(item["created_at"])).date() for item in attempts
-    }
+    active_dates = {datetime.fromisoformat(str(item["created_at"])).date() for item in attempts}
     if not active_dates:
         return 0
     today = datetime.now(UTC).date()
@@ -1449,9 +2214,7 @@ def get_roadmap(session_id: str) -> dict[str, object]:
     }
     current_lesson = get_current_lesson(session_id)
     current_unit_id = (
-        str(current_lesson["unit_id"])
-        if current_lesson["status"] == "active"
-        else None
+        str(current_lesson["unit_id"]) if current_lesson["status"] == "active" else None
     )
     stages = []
 
@@ -1460,14 +2223,15 @@ def get_roadmap(session_id: str) -> dict[str, object]:
         stage_tasks = [task for task in TASKS if int(task["exam_number"]) in task_numbers]
         stage_units = [unit for unit in lesson_units if unit["stage_id"] == stage["id"]]
         completed_lessons = sum(
-            bool(lesson_states[str(unit["id"])]["complete"])
-            for unit in stage_units
+            bool(lesson_states[str(unit["id"])]["complete"]) for unit in stage_units
         )
         stage_task_ids = {str(task["id"]) for task in stage_tasks}
         stage_attempts = [item for item in attempts if str(item["task_id"]) in stage_task_ids]
         covered = len(stage_task_ids & attempted_task_ids)
         mastery = (
-            round(sum(bool(item["is_correct"]) for item in stage_attempts) / len(stage_attempts) * 100)
+            round(
+                sum(bool(item["is_correct"]) for item in stage_attempts) / len(stage_attempts) * 100
+            )
             if stage_attempts
             else None
         )
@@ -1487,8 +2251,7 @@ def get_roadmap(session_id: str) -> dict[str, object]:
                 "progress": (
                     round(
                         sum(
-                            _lesson_progress(lesson_states[str(unit["id"])])
-                            for unit in stage_units
+                            _lesson_progress(lesson_states[str(unit["id"])]) for unit in stage_units
                         )
                         / len(stage_units)
                     )
@@ -1514,9 +2277,7 @@ def get_roadmap(session_id: str) -> dict[str, object]:
                         "title": metrics[str(unit["topic"]["id"])]["short_title"],
                         "mastery": metrics[str(unit["topic"]["id"])]["mastery"],
                         "attempts": metrics[str(unit["topic"]["id"])]["attempts"],
-                        "task_numbers": [
-                            int(task["exam_number"]) for task in unit["tasks"]
-                        ],
+                        "task_numbers": [int(task["exam_number"]) for task in unit["tasks"]],
                         "theory_id": metrics[str(unit["topic"]["id"])]["theory_id"],
                         "current_step": lesson_states[str(unit["id"])]["current_step"],
                         "progress": _lesson_progress(lesson_states[str(unit["id"])]),
@@ -1575,9 +2336,7 @@ def get_roadmap(session_id: str) -> dict[str, object]:
                     "number": unit["stage_number"],
                     "title": unit["stage_title"],
                 },
-                "task_numbers": [
-                    int(task["exam_number"]) for task in unit["tasks"]
-                ],
+                "task_numbers": [int(task["exam_number"]) for task in unit["tasks"]],
                 "mastery": metrics[topic_id]["mastery"],
                 "current_step": unit_state["current_step"],
                 "progress": _lesson_progress(unit_state),
@@ -1820,7 +2579,11 @@ def get_admin_users() -> list[dict[str, object]]:
                 "accuracy": accuracy,
                 "primary_result": prediction["predicted_primary_score"],
                 "activity": max(str(item["created_at"]) for item in attempts),
-                "risk": "stable" if accuracy >= 70 else "attention" if accuracy >= 50 else "critical",
+                "risk": "stable"
+                if accuracy >= 70
+                else "attention"
+                if accuracy >= 50
+                else "critical",
             }
         )
     return sorted(users, key=lambda item: str(item["activity"]), reverse=True)

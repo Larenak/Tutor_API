@@ -30,7 +30,6 @@ const state = {
 };
 
 const view = document.querySelector("#view");
-const sidebar = document.querySelector("#sidebar");
 
 async function requestFrom(baseUrl, path, options = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
@@ -106,7 +105,7 @@ function toast(message) {
 
 function pageHeader(eyebrow, title, description, action = "") {
   return `<header class="page-header">
-    <div><p class="eyebrow">${eyebrow}</p><h1>${title}</h1><p>${description}</p></div>
+    <div><p class="eyebrow">${eyebrow}</p><h1>${title}</h1>${description ? `<p>${description}</p>` : ""}</div>
     ${action ? `<div class="header-action">${action}</div>` : ""}
   </header>`;
 }
@@ -173,9 +172,8 @@ function renderRoadmapSubtopics(subtopics, compact = false) {
 }
 
 function renderCourseOrderMain(item) {
-  const adaptation = item.is_adapted ? '<em>↑ приоритет изменён</em>' : "";
-  const heading = `<div><div class="course-order-title"><span>Этап ${item.stage.number}</span>${adaptation}</div><h3>${escapeHtml(item.topic.short_title)}</h3></div>`;
-  const content = `<p>${escapeHtml(item.topic.description)}</p><div class="course-task-numbers">${item.task_numbers.map((number) => `<span>№${number}</span>`).join("")}</div>${renderRoadmapSubtopics(item.subtopics)}<small class="course-reason">${escapeHtml(item.reason)}</small>`;
+  const heading = `<div><h3>${escapeHtml(item.topic.short_title)}</h3></div>`;
+  const content = `<div class="course-task-numbers">${item.task_numbers.map((number) => `<span>№${number}</span>`).join("")}</div>${renderRoadmapSubtopics(item.subtopics)}`;
 
   if (["vectors", "geometry", "probability"].includes(item.topic.id)) {
     return `<div class="course-order-main"><details class="course-topic-disclosure" open>
@@ -214,10 +212,10 @@ function renderDashboardCalendar(data) {
 }
 
 function renderLessonPlanCard(lesson) {
-  if (!lesson) return `<article class="day-plan-card empty"><span class="agenda-kind">Урок</span><h3>Курс пройден</h3><p>Все уроки текущего роадмапа завершены.</p><button class="secondary-button" data-go="roadmap">Посмотреть роадмап</button></article>`;
+  if (!lesson) return `<article class="day-plan-card empty"><span class="agenda-kind">Урок</span><h3>Курс пройден</h3><button class="secondary-button" data-go="roadmap">Посмотреть роадмап</button></article>`;
   return `<article class="day-plan-card lesson">
     <div class="day-plan-card-top"><span class="agenda-kind">Текущий урок</span><span>${lesson.estimated_minutes} мин</span></div>
-    <h3>${escapeHtml(lesson.title)}</h3><p>${escapeHtml(lesson.description)}</p>
+    <h3>${escapeHtml(lesson.title)}</h3>
     <div class="lesson-progress"><div><span>Прогресс урока</span><b>${lesson.progress}%</b></div><i role="progressbar" aria-label="Прогресс урока ${escapeHtml(lesson.title)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${lesson.progress}"><b style="width:${lesson.progress}%"></b></i></div>
     <div class="day-plan-card-footer"><span>${escapeHtml(lesson.step_label)} · до 100%</span><button class="primary-button" data-go="lessons">Продолжить урок →</button></div>
   </article>`;
@@ -226,8 +224,8 @@ function renderLessonPlanCard(lesson) {
 function renderTodayPlan(data) {
   const homework = data.today.homework;
   const homeworkCard = homework
-    ? `<article class="day-plan-card homework"><div class="day-plan-card-top"><span class="agenda-kind">Домашнее задание</span><span>до ${formatDate(homework.due_date)}</span></div><h3>${escapeHtml(homework.title)}</h3><p>${escapeHtml(homework.description)}</p><div class="lesson-progress"><div><span>Выполнено</span><b>${homework.progress}%</b></div><i role="progressbar" aria-label="Прогресс домашнего задания" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${homework.progress}"><b style="width:${homework.progress}%"></b></i></div><div class="day-plan-card-footer"><span>${homework.estimated_minutes} мин самостоятельно</span><button class="secondary-button" data-go="homework">Открыть ДЗ →</button></div></article>`
-    : `<article class="day-plan-card homework empty"><span class="agenda-kind">Домашнее задание</span><h3>Пока не назначено</h3><p>Появится после практики и будет выполняться отдельно от урока.</p><button class="secondary-button" data-go="homework">Раздел ДЗ</button></article>`;
+    ? `<article class="day-plan-card homework"><div class="day-plan-card-top"><span class="agenda-kind">Домашнее задание</span><span>до ${formatDate(homework.due_date)}</span></div><h3>${escapeHtml(homework.title)}</h3><div class="lesson-progress"><div><span>Выполнено</span><b>${homework.progress}%</b></div><i role="progressbar" aria-label="Прогресс домашнего задания" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${homework.progress}"><b style="width:${homework.progress}%"></b></i></div><div class="day-plan-card-footer"><span>${homework.estimated_minutes} мин самостоятельно</span><button class="secondary-button" data-go="homework">Открыть ДЗ →</button></div></article>`
+    : `<article class="day-plan-card homework empty"><span class="agenda-kind">Домашнее задание</span><h3>Пока не назначено</h3><button class="secondary-button" data-go="homework">Раздел ДЗ</button></article>`;
   const reviews = data.today.reviews.map((item) => `<article class="agenda-row review"><span>Повторение</span><div><b>${escapeHtml(item.title)}</b><small>${escapeHtml(item.action)}</small></div><button class="schedule-arrow" data-go="lessons" aria-label="Открыть повторение">→</button></article>`).join("");
   return `<div class="day-plan-cards">${renderLessonPlanCard(data.today.lesson)}${homeworkCard}${reviews}</div>`;
 }
@@ -245,28 +243,19 @@ function renderDashboard() {
   const selectedDate = state.dashboardSelectedDate || data.date;
   const isToday = selectedDate === data.date;
   const score = metrics.prediction_available ? metrics.expected_test_score : "—";
-  view.innerHTML = `${pageHeader("Главная", "Учебный маршрут", "Расписание, текущий урок и следующие подтемы вашего адаптивного курса.")}
+  view.innerHTML = `${pageHeader("Главная", "Учебный маршрут", "")}
     <section class="section dashboard-calendar-section">
-      <div class="section-heading"><div><h2>Расписание</h2><p>Выберите день — справа появится только его учебный план</p></div>${isToday ? "" : '<button class="text-button" data-calendar-today>Вернуться к сегодня</button>'}</div>
+      <div class="section-heading"><div><h2>Расписание</h2></div>${isToday ? "" : '<button class="secondary-button compact-button" data-calendar-today>Сегодня</button>'}</div>
       <div class="calendar-layout">${renderDashboardCalendar(data)}
-        <div class="selected-day-plan"><div class="selected-day-heading"><div><span>${isToday ? "Сегодня" : "Выбранный день"}</span><h3>${formatLongDate(selectedDate)}</h3></div><small>${isToday ? "Текущий урок и самостоятельная работа" : "План по роадмапу"}</small></div>
+        <div class="selected-day-plan"><div class="selected-day-heading"><div><span>${isToday ? "План на сегодня" : "Выбранный день"}</span><h3>${formatLongDate(selectedDate)}</h3></div></div>
           ${isToday ? renderTodayPlan(data) : renderScheduledPlan(data, selectedDate)}
         </div>
       </div>
-      <p class="schedule-note">${escapeHtml(data.schedule_note)}</p>
     </section>
 
     <section class="dashboard-overview" aria-label="Общие сведения об обучении">
-      <div class="overview-heading"><span>Общие сведения</span><b>Ваш учебный прогресс</b><p>Показатели считаются только по выполненным заданиям.</p></div>
-      <article><span>Ожидаемый балл ЕГЭ</span><b>${score}<small> / ${metrics.max_test_score}</small></b><p>${metrics.prediction_available ? "вторичный · по реальным ответам" : "после 19 типов заданий"}</p></article>
-      <article><span class="streak-label">Серия занятий <i class="streak-fire ${metrics.streak_days ? "active" : "inactive"}" aria-label="${metrics.streak_days ? "Огонёк серии горит" : "Огонёк серии потух"}">🔥</i></span><b>${metrics.streak_days}<small> дн.</small></b><p>${metrics.streak_days ? "огонёк горит" : "решите задание, чтобы зажечь"}</p></article>
-    </section>
-
-    <section class="section dashboard-roadmap-section">
-      <div class="panel roadmap-preview-panel"><div class="section-heading"><div><h2>Дальше по роадмапу</h2><p>${escapeHtml(data.roadmap.adaptation.message)}</p></div><button class="text-button" data-go="roadmap">Весь план →</button></div>
-        <ol class="roadmap-preview">${data.roadmap.next_lessons.map((item) => `<li class="${item.lesson_state}"><span>${item.position}</span><div class="roadmap-preview-content"><div class="roadmap-preview-title"><b>${escapeHtml(item.topic.short_title)}</b><strong>${item.progress}%</strong></div><small>Задания ${item.task_numbers.map((number) => `№${number}`).join(", ")}</small><div class="unit-progress"><i><b style="width:${item.progress}%"></b></i></div>${renderRoadmapSubtopics(item.subtopics, true)}${item.is_adapted ? '<em>↑ поднято из-за ошибок</em>' : ""}</div></li>`).join("")}</ol>
-        <button class="lessons-link" data-go="lessons"><span>▶</span><b>Перейти в раздел с уроками</b><small>Порядок уроков синхронизирован с роадмапом</small><i>→</i></button>
-      </div>
+      <article><span>Ожидаемый балл ЕГЭ</span><b>${score}<small> / ${metrics.max_test_score}</small></b></article>
+      <article><span>Серия занятий</span><b>${metrics.streak_days}<small> дн.</small></b></article>
     </section>`;
 
   document.querySelectorAll("[data-calendar-date]").forEach((button) => button.addEventListener("click", () => {
@@ -289,13 +278,10 @@ function renderDashboard() {
 function renderRoadmap() {
   const roadmap = state.roadmap;
   const stepLabels = { theory: "Теория", practice: "Практика", complete: "Урок пройден" };
-  view.innerHTML = `${pageHeader("Персональный роадмап", "Путеводитель по курсу", roadmap.principle,
-    '<button class="primary-button" data-go="lessons">Открыть текущий урок →</button>')}
-    <section class="roadmap-summary adaptive-summary"><div><span class="adaptive-pulse"></span><p class="eyebrow">Адаптивный порядок</p><h2>${roadmap.adaptation.active ? "План уже перестроен" : "Сейчас действует базовый план"}</h2><p>${escapeHtml(roadmap.adaptation.message)} Завершённые уроки остаются на месте, а темы с частыми ошибками поднимаются выше среди следующих.</p></div>
-      <div class="roadmap-progress-big">${roadmap.completed_lesson_units}<small>из ${roadmap.total_lesson_units} уроков</small><i style="width:${roadmap.overall_progress}%"></i></div></section>
+  view.innerHTML = `${pageHeader("Персональный роадмап", "Путеводитель по курсу", "")}
     <section class="course-order-section">
-      <div class="section-heading"><div><h2>Порядок тем и заданий</h2><p>Это тот же порядок, который используется в разделе «Уроки»</p></div></div>
-      <ol class="course-order">${roadmap.lesson_order.map((item) => `<li class="course-order-item ${item.lesson_state} ${item.is_adapted ? "adapted" : ""}">
+      <div class="section-heading"><div><h2>Порядок тем</h2></div></div>
+      <ol class="course-order">${roadmap.lesson_order.map((item) => `<li class="course-order-item ${item.lesson_state}">
         <span class="course-position">${item.lesson_state === "completed" ? "✓" : item.position}</span>
         ${renderCourseOrderMain(item)}
         <div class="course-order-state"><strong>${item.progress}%</strong><i><b style="width:${item.progress}%"></b></i><b>${item.lesson_state === "completed" ? "Пройдено" : item.lesson_state === "current" ? `Сейчас: ${stepLabels[item.current_step]}` : "Впереди"}</b><small>${item.homework_status === "assigned" ? "ДЗ назначено отдельно" : item.homework_status === "completed" ? "ДЗ выполнено" : "ДЗ после практики"}</small>${item.lesson_state === "current" ? '<button class="text-button" data-go="lessons">Открыть урок →</button>' : ""}</div>
@@ -724,7 +710,7 @@ function bindTheoryPageControls() {
 function renderLessons() {
   const lesson = state.lesson;
   if (lesson.status === "completed") {
-    view.innerHTML = `${pageHeader("Уроки по роадмапу", "Учебный маршрут завершён", "Все уроки пройдены в порядке, сформированном роадмапом.")}
+    view.innerHTML = `${pageHeader("Уроки", "Учебный маршрут завершён", "Все темы пройдены.")}
       <section class="lesson-complete"><span>✓</span><h2>Отличная работа</h2><p>Вы завершили ${lesson.total_units} уроков. Назначенные самостоятельные работы остаются в отдельном разделе.</p><div class="complete-actions"><button class="secondary-button" data-go="roadmap">Посмотреть роадмап</button><button class="primary-button" data-go="homework">Домашние задания →</button></div></section>`;
     bindGoButtons();
     return;
@@ -758,7 +744,7 @@ function renderLessons() {
       <p class="task-source">Источник типа: <a href="${escapeHtml(task.source.url)}" target="_blank" rel="noreferrer">${escapeHtml(task.source.label)}</a> · условие адаптировано и не копирует оригинал дословно</p>
     </article>`;
 
-  view.innerHTML = `${pageHeader("Уроки по роадмапу", lesson.topic.short_title, `${lesson.stage.number}-й этап · ${lesson.stage.title}`,
+  view.innerHTML = `${pageHeader("Текущий урок", lesson.topic.short_title, `${lesson.stage.number}-й этап · ${lesson.stage.title}`,
     '<button class="secondary-button" data-go="roadmap">Посмотреть роадмап</button>')}
     <section class="lesson-shell">
       <div class="lesson-context"><span>Тема ${lesson.position} из ${lesson.total_units}</span><b>${lesson.topic.title}</b><small>${lesson.topic.description}</small></div>
@@ -786,7 +772,7 @@ function renderLessons() {
 function renderHomework() {
   const homework = state.homework;
   if (homework.status !== "active") {
-    view.innerHTML = `${pageHeader("Домашние задания", "Самостоятельная работа", "Домашние задания назначаются после практики, но не решаются внутри урока.", '<button class="secondary-button" data-go="lessons">Перейти к урокам</button>')}
+    view.innerHTML = `${pageHeader("Домашние задания", "Самостоятельная работа", "Отдельно от урока и практики.", '<button class="secondary-button" data-go="lessons">Перейти к урокам</button>')}
       <section class="homework-empty"><span>✓</span><h2>Все задания выполнены</h2><p>${escapeHtml(homework.message)}</p><button class="primary-button" data-go="dashboard">Вернуться на главную</button></section>`;
     bindGoButtons();
     return;
@@ -794,7 +780,7 @@ function renderHomework() {
   const task = homework.task;
   view.innerHTML = `${pageHeader("Домашние задания", homework.topic.short_title, `Сдать до ${formatDate(homework.due_date)} · задача ${homework.current_task_number} из ${homework.total_tasks}`, '<button class="secondary-button" data-go="lessons">К урокам</button>')}
     <section class="homework-shell">
-      <aside class="homework-separation-note"><span>ДЗ</span><div><b>Решите самостоятельно</b><p>Здесь нет конспекта и учебной практики рядом. Если нужна теория, вернитесь к урокам отдельно, а затем снова откройте ДЗ.</p></div></aside>
+      <aside class="homework-separation-note"><span>ДЗ</span><div><b>Самостоятельная работа</b><p>Теория и практика остаются в разделе «Уроки».</p></div></aside>
       <article class="lesson-panel lesson-task homework-workspace">
         <div class="homework-banner"><b>Домашнее задание · ${homework.total_tasks} задач</b><span>Самостоятельно · после урока «${escapeHtml(homework.topic.short_title)}»</span></div>
         <div class="practice-toolbar homework-progress"><div><span>Задача ${homework.current_task_number} из ${homework.total_tasks}</span><i><b style="width:${homework.attempted_tasks / homework.total_tasks * 100}%"></b></i></div><small>Осталось: ${homework.remaining_tasks}</small></div>
@@ -1069,24 +1055,24 @@ function renderPredictionHistory(history, maxScore) {
 function renderAnalytics() {
   const data = state.analytics;
   const prediction = data.prediction;
-  view.innerHTML = `${pageHeader("Результаты", "Аналитика по вашим ответам", "Только реальные попытки, ошибки, покрытие типов заданий и ожидаемый вторичный балл ЕГЭ.")}
+  view.innerHTML = `${pageHeader("Результаты", "Аналитика", "Прогресс, ошибки и прогноз по реальным ответам.")}
     <div class="analytics-grid">
-      <article class="metric-card"><small>Попыток</small><b>${data.summary.attempts}</b></article>
-      <article class="metric-card"><small>Верных ответов</small><b>${data.summary.correct}<span class="metric-suffix"> / ${data.summary.attempts}</span></b></article>
-      <article class="metric-card"><small>Типов пройдено</small><b>${prediction.covered_task_types}<span class="metric-suffix"> / ${prediction.required_task_types}</span></b></article>
-      <article class="metric-card"><small>Ожидаемый балл ЕГЭ</small><b>${prediction.available ? prediction.predicted_test_score : "—"}<span class="metric-suffix"> / ${prediction.max_test_score}</span></b></article>
+      <article class="metric-card"><span class="metric-icon">∑</span><small>Попыток</small><b>${data.summary.attempts}</b></article>
+      <article class="metric-card"><span class="metric-icon teal">✓</span><small>Верных</small><b>${data.summary.correct}<span class="metric-suffix"> / ${data.summary.attempts}</span></b></article>
+      <article class="metric-card"><span class="metric-icon yellow">№</span><small>Типов пройдено</small><b>${prediction.covered_task_types}<span class="metric-suffix"> / ${prediction.required_task_types}</span></b></article>
+      <article class="metric-card"><span class="metric-icon dark">↗</span><small>Прогноз ЕГЭ</small><b>${prediction.available ? prediction.predicted_test_score : "—"}<span class="metric-suffix"> / ${prediction.max_test_score}</span></b></article>
 
-      <section class="panel chart-panel"><div class="section-heading"><div><h2>Динамика ожидаемого балла</h2><p>Последний реальный ответ по каждому из 19 типов · вторичная шкала ЕГЭ-2026</p></div><span class="model-badge">без фиктивных данных</span></div>
+      <section class="panel chart-panel"><div class="section-heading"><div><h2>Динамика балла</h2><p>По последним реальным ответам</p></div><span class="model-badge">ЕГЭ-2026</span></div>
         ${renderPredictionHistory(data.prediction_history, data.prediction.max_test_score)}
       </section>
-      <section class="panel weak-panel"><div class="section-heading"><div><h2>Зоны внимания</h2><p>Только темы, где уже были ошибки</p></div></div>
-        <div class="weak-list">${data.weak_topics.length ? data.weak_topics.map((item) => `<article class="weak-item"><div><b>${item.short_title}</b><span>${percent(item.mastery)}</span></div><p>${item.correct} верно из ${item.attempts}</p><span class="content-links"><a href="${item.theory_href}" data-open-theory="${item.theory_id}">Теория</a><a href="${item.practice_href}" data-open-task="${state.tasks.find((task) => task.topic_id === item.topic_id).id}">Практика</a></span></article>`).join("") : `<div class="empty-state compact">${data.summary.attempts ? "Тем с ошибками пока нет." : "Сначала решите несколько заданий."}</div>`}</div>
+      <section class="panel weak-panel"><div class="section-heading"><div><h2>Зоны внимания</h2><p>Темы с ошибками</p></div></div>
+        <div class="weak-list">${data.weak_topics.length ? data.weak_topics.map((item) => `<article class="weak-item"><div><b>${item.short_title}</b><span>${item.correct} / ${item.attempts} · ${percent(item.mastery)}</span></div><span class="content-links"><a href="${item.theory_href}" data-open-theory="${item.theory_id}">Теория</a><a href="${item.practice_href}" data-open-task="${state.tasks.find((task) => task.topic_id === item.topic_id).id}">Практика</a></span></article>`).join("") : `<div class="empty-state compact">${data.summary.attempts ? "Тем с ошибками пока нет." : "Сначала решите несколько заданий."}</div>`}</div>
       </section>
-      <section class="panel mastery-panel"><div class="section-heading"><div><h2>Результаты по темам</h2><p>Доля верных ответов без сглаживания и стартовых значений</p></div></div>
+      <section class="panel mastery-panel"><div class="section-heading"><div><h2>Результаты по темам</h2></div></div>
         <div class="mastery-list">${data.topics.map((item) => `<div class="mastery-item" style="--topic-color:${item.accent}"><div><b>${item.short_title}</b><span>${percent(item.mastery)} · ${item.attempts} попыток</span></div><div class="mini-track"><i style="width:${item.mastery ?? 0}%;background:${item.accent}"></i></div><span class="content-links"><a href="${item.theory_href}" data-open-theory="${item.theory_id}">Теория</a><a href="${item.practice_href}" data-open-task="${state.tasks.find((task) => task.topic_id === item.topic_id).id}">Практика</a></span></div>`).join("")}</div>
       </section>
-      <section class="panel plan-panel"><div class="section-heading"><div><h2>Индивидуальный план</h2><p>Повторение только подтверждённых ошибок</p></div></div>
-        <div class="plan-list">${data.individual_plan.length ? data.individual_plan.map((item) => `<article class="plan-item"><i class="plan-dot"></i><span><b>${item.title}</b><small>${item.action}<br>${item.reason}</small><span class="content-links"><a href="${item.theory_href}" data-open-theory="${item.theory_id}">Теория</a><a href="${item.practice_href}" data-open-task="${item.task_id}">Практика</a></span></span><time>${formatDate(item.due_date)}</time></article>`).join("") : `<div class="empty-state compact">План появится после подтверждённой ошибки.</div>`}</div>
+      <section class="panel plan-panel"><div class="section-heading"><div><h2>Индивидуальный план</h2><p>Что повторить дальше</p></div></div>
+        <div class="plan-list">${data.individual_plan.length ? data.individual_plan.map((item) => `<article class="plan-item"><i class="plan-dot"></i><span><b>${item.title}</b><small>${item.reason}</small><span class="content-links"><a href="${item.theory_href}" data-open-theory="${item.theory_id}">Теория</a><a href="${item.practice_href}" data-open-task="${item.task_id}">Практика</a></span></span><time>${formatDate(item.due_date)}</time></article>`).join("") : `<div class="empty-state compact">План появится после подтверждённой ошибки.</div>`}</div>
       </section>
     </div>`;
   bindContentLinks();
@@ -1174,7 +1160,17 @@ function updateHomeworkBadge() {
 }
 
 function setActiveNav() {
-  document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.page === state.page));
+  let activeItem = null;
+  document.querySelectorAll(".nav-item").forEach((item) => {
+    const isActive = item.dataset.page === state.page;
+    item.classList.toggle("active", isActive);
+    if (isActive) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
+    if (isActive) activeItem = item;
+  });
+  if (activeItem && activeItem.parentElement.scrollWidth > activeItem.parentElement.clientWidth) {
+    activeItem.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }
 }
 
 function goTo(page) {
@@ -1182,7 +1178,6 @@ function goTo(page) {
   state.page = page;
   window.location.hash = page === "dashboard" ? "" : page;
   setActiveNav();
-  sidebar.classList.remove("open");
   render();
   view.focus({ preventScroll: true });
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1209,14 +1204,16 @@ function toggleRole() {
 
 document.querySelectorAll(".nav-item").forEach((item) => item.addEventListener("click", () => goTo(item.dataset.page)));
 document.querySelector("#role-switch").addEventListener("click", toggleRole);
-document.querySelector("#mobile-menu").addEventListener("click", () => sidebar.classList.toggle("open"));
 
 loadData().then(() => {
   updateHomeworkBadge();
   const hash = window.location.hash.slice(1);
   if (["roadmap", "lessons", "homework", "analytics", "admin"].includes(hash)) goTo(hash);
   else if (hash.startsWith("practice-") || hash.startsWith("theory-")) goTo("lessons");
-  else render();
+  else {
+    setActiveNav();
+    render();
+  }
 }).catch((error) => {
   view.innerHTML = `<div class="error-card"><h2>Сайт запущен, но API не ответил</h2><p>${escapeHtml(error.message)}</p><button class="secondary-button" onclick="location.reload()">Повторить</button></div>`;
 });

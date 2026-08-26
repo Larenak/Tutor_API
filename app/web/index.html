@@ -5,52 +5,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Прототип персональной подготовки к ЕГЭ по профильной математике">
   <title>Вектор — подготовка к ЕГЭ</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=ai-tutor-1">
+  <link rel="stylesheet" href="/assets/styles.css?v=compact-home-1">
 </head>
 <body>
   <div class="app-shell">
-    <aside class="sidebar" id="sidebar">
-      <div class="brand" aria-label="Вектор">
-        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span>вектор</span>
-      </div>
+    <header class="site-header">
+      <div class="topbar">
+        <div class="topbar-main">
+          <div class="brand" aria-label="Вектор">
+            <span>вектор</span>
+          </div>
 
-      <div class="exam-chip">
-        <span class="exam-chip-icon">∑</span>
-        <span><small>Мой предмет</small><b>Профильная математика</b></span>
-        <span class="chevron">⌄</span>
-      </div>
+          <div class="topbar-actions">
+            <button class="role-switch" id="role-switch" type="button" aria-label="Сменить роль">
+              <span class="avatar">УЧ</span>
+              <span><b id="role-name">Ученик</b><small id="role-label">Текущая сессия</small></span>
+            </button>
+          </div>
+        </div>
 
-      <nav class="nav" aria-label="Главная навигация">
-        <p class="nav-label">Обучение</p>
-        <button class="nav-item active" data-page="dashboard"><span>⌂</span>Главная</button>
-        <button class="nav-item" data-page="lessons"><span>▶</span>Уроки<b class="nav-badge">1</b></button>
-        <button class="nav-item" data-page="homework"><span>✓</span>Домашние задания<b class="nav-badge hidden" id="homework-badge">1</b></button>
-        <button class="nav-item" data-page="roadmap"><span>↗</span>Роадмап</button>
-        <p class="nav-label">Результаты</p>
-        <button class="nav-item" data-page="analytics"><span>⌁</span>Аналитика</button>
-        <button class="nav-item admin-only hidden" data-page="admin"><span>⚙</span>Управление</button>
-      </nav>
-
-      <div class="sidebar-footer">
-        <button class="role-switch" id="role-switch" type="button">
-          <span class="avatar">УЧ</span>
-          <span><b id="role-name">Ученик</b><small id="role-label">Текущая сессия</small></span>
-          <span class="switch-icon">⇄</span>
-        </button>
-        <p class="prototype-label">Прототип · результаты текущей сессии</p>
+        <nav class="nav" aria-label="Разделы обучения">
+          <button class="nav-item active" data-page="dashboard"><b>Главная</b></button>
+          <button class="nav-item" data-page="lessons"><b>Уроки</b><i class="nav-badge">1</i></button>
+          <button class="nav-item" data-page="homework"><b>Домашние задания</b><i class="nav-badge hidden" id="homework-badge">1</i></button>
+          <button class="nav-item" data-page="roadmap"><b>Роадмап</b></button>
+          <button class="nav-item" data-page="analytics"><b>Аналитика</b></button>
+          <button class="nav-item admin-only hidden" data-page="admin"><b>Управление</b></button>
+        </nav>
       </div>
-    </aside>
+    </header>
 
     <div class="main-column">
-      <header class="topbar">
-        <button class="mobile-menu" id="mobile-menu" aria-label="Открыть меню">☰</button>
-        <div class="mobile-brand">вектор</div>
-        <div class="topbar-actions">
-          <span class="source-pill"><i></i> ФИПИ · 2026</span>
-          <button class="icon-button" aria-label="Уведомления">♢<b></b></button>
-        </div>
-      </header>
       <main id="view" tabindex="-1">
         <div class="loading-state">
           <span class="loader"></span>
@@ -61,6 +46,6 @@
   </div>
 
   <div class="toast-region" id="toast-region" aria-live="polite"></div>
-  <script src="/assets/app.js?v=ai-tutor-1" defer></script>
+  <script src="/assets/app.js?v=compact-home-1" defer></script>
 </body>
 </html>

@@ -7,6 +7,7 @@ dependencies = [
   "alembic>=1.14",
   "email-validator>=2.2",
   "fastapi>=0.115",
+  "httpx>=0.28",
   "pydantic-settings>=2.6",
   "pwdlib[argon2]>=0.3",
   "PyJWT>=2.10",
@@ -17,7 +18,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "httpx>=0.28",
   "pytest>=8.3",
   "ruff>=0.8",
 ]

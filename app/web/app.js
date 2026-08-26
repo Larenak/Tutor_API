@@ -1,4 +1,5 @@
 const API = "/api/v1/exam/math-profile";
+const AI_API = "/api/v1/ai";
 const sessionId = new URLSearchParams(window.location.search).get("session_id") || "local-student";
 
 const state = {
@@ -21,6 +22,9 @@ const state = {
   lessonView: null,
   lessonTheoryPage: 0,
   lessonTheoryUnitId: null,
+  aiStatus: null,
+  aiTheoryAnswers: {},
+  aiHints: {},
   dashboardSelectedDate: null,
   dashboardCalendarMonth: null,
 };
@@ -28,8 +32,8 @@ const state = {
 const view = document.querySelector("#view");
 const sidebar = document.querySelector("#sidebar");
 
-async function request(path, options = {}) {
-  const response = await fetch(`${API}${path}`, {
+async function requestFrom(baseUrl, path, options = {}) {
+  const response = await fetch(`${baseUrl}${path}`, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options,
   });
@@ -38,8 +42,16 @@ async function request(path, options = {}) {
   return payload.data;
 }
 
+function request(path, options = {}) {
+  return requestFrom(API, path, options);
+}
+
+function aiRequest(path, options = {}) {
+  return requestFrom(AI_API, path, options);
+}
+
 async function loadData() {
-  const [overview, tasks, theory, analytics, roadmap, lesson, homework, dashboard, admin, adminUsers, adminTasks] =
+  const [overview, tasks, theory, analytics, roadmap, lesson, homework, dashboard, admin, adminUsers, adminTasks, aiStatus] =
     await Promise.all([
       request("/overview"), request("/tasks"), request("/theory"),
       request(`/analytics?session_id=${sessionId}`),
@@ -48,8 +60,9 @@ async function loadData() {
       request(`/homework/current?session_id=${sessionId}`),
       request(`/dashboard?session_id=${sessionId}`), request("/admin/dashboard"),
       request("/admin/users"), request("/admin/tasks"),
+      aiRequest("/status").catch(() => ({ provider: "deepseek", model: "—", configured: false, capabilities: [] })),
     ]);
-  Object.assign(state, { overview, tasks, theory, analytics, roadmap, lesson, homework, dashboard, admin, adminUsers, adminTasks });
+  Object.assign(state, { overview, tasks, theory, analytics, roadmap, lesson, homework, dashboard, admin, adminUsers, adminTasks, aiStatus });
   state.dashboardSelectedDate ||= dashboard.date;
   state.dashboardCalendarMonth ||= `${dashboard.date.slice(0, 7)}-01`;
 }
@@ -460,6 +473,174 @@ function renderTheoryExample(example, secondary = false) {
   </aside>`;
 }
 
+function aiReady() {
+  return Boolean(state.aiStatus?.configured);
+}
+
+function aiProviderLabel() {
+  return { deepseek: "DeepSeek", openrouter: "OpenRouter" }[state.aiStatus?.provider]
+    || state.aiStatus?.provider
+    || "ИИ";
+}
+
+function renderAIModelBadge() {
+  return `<span class="ai-model-badge ${aiReady() ? "ready" : "waiting"}"><i></i>${aiReady() ? `${aiProviderLabel()} подключён` : "ожидает API-ключ"}</span>`;
+}
+
+function renderAITheoryAnswer(answer) {
+  if (!answer) return "";
+  return `<article class="ai-answer">
+    <span>Персональное объяснение</span><h4>${escapeHtml(answer.title)}</h4>
+    <p>${escapeHtml(answer.explanation)}</p>
+    <div class="ai-example"><b>Новый пример</b><p>${escapeHtml(answer.example)}</p></div>
+    <div class="ai-self-check"><b>Проверь себя</b><p>${escapeHtml(answer.check_question)}</p></div>
+    <small>${escapeHtml(aiProviderLabel())} · только текущий раздел теории</small>
+  </article>`;
+}
+
+function renderAITheoryPanel(lesson) {
+  const section = lesson.theory.sections?.[state.lessonTheoryPage];
+  if (!section) return "";
+  const answerKey = `${lesson.unit_id}:${section.id}`;
+  const answer = state.aiTheoryAnswers[answerKey];
+  const disabled = aiReady() ? "" : "disabled";
+  return `<section class="ai-tutor-card theory-ai-card">
+    <header><div><span class="ai-kicker">ИИ-репетитор</span><h3>Спросить по этой странице</h3><p>Ответ ограничен разделом «${escapeHtml(section.title)}» и экзаменационной теорией урока.</p></div>${renderAIModelBadge()}</header>
+    <form class="ai-question-form" id="ai-theory-form">
+      <label for="ai-theory-question">Что осталось непонятно?</label>
+      <div><input id="ai-theory-question" name="question" maxlength="500" placeholder="Например: объясни проще и приведи другой пример" ${disabled}><button class="secondary-button" type="submit" ${disabled}>Объяснить</button></div>
+    </form>
+    ${aiReady() ? "" : '<p class="ai-setup-note">Интерфейс готов. После добавления <code>DEEPSEEK_API_KEY</code> в локальный .env кнопка станет активной.</p>'}
+    <div class="ai-response-slot" id="ai-theory-response" aria-live="polite">${renderAITheoryAnswer(answer)}</div>
+  </section>`;
+}
+
+async function requestAITheoryExplanation(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
+  const section = state.lesson.theory.sections[state.lessonTheoryPage];
+  const answerKey = `${state.lesson.unit_id}:${section.id}`;
+  const question = new FormData(form).get("question")?.trim() || "Объясни этот раздел проще и проверь, понял ли я его.";
+  button.disabled = true;
+  button.textContent = "Объясняю…";
+  try {
+    const answer = await aiRequest("/explain-theory", {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: sessionId,
+        lesson_unit_id: state.lesson.unit_id,
+        theory_section_id: section.id,
+        question,
+      }),
+    });
+    state.aiTheoryAnswers[answerKey] = answer;
+    document.querySelector("#ai-theory-response").innerHTML = renderAITheoryAnswer(answer);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Объяснить";
+  }
+}
+
+function bindAITheoryControls() {
+  document.querySelector("#ai-theory-form")?.addEventListener("submit", requestAITheoryExplanation);
+}
+
+function renderAIHintItems(hints) {
+  if (!hints.length) return '<p class="ai-empty-response">Начните с мягкой подсказки: ИИ направит мысль, но не выдаст ответ.</p>';
+  return hints.map((hint) => `<article class="ai-hint-item"><span>Подсказка ${hint.level}</span><b>${escapeHtml(hint.focus)}</b><p>${escapeHtml(hint.hint)}</p><small>${escapeHtml(hint.self_check)}</small></article>`).join("");
+}
+
+function renderAIHintPanel(lesson) {
+  const taskKey = lesson.practice_task.lesson_task_key;
+  const hints = state.aiHints[taskKey] || [];
+  const nextLevel = hints.length + 1;
+  const disabled = !aiReady() || nextLevel > 3;
+  const buttonLabel = !aiReady() ? "Нужен API-ключ" : nextLevel > 3 ? "Все подсказки получены" : `Подсказка ${nextLevel} из 3`;
+  return `<section class="ai-tutor-card hint-ai-card">
+    <header><div><span class="ai-kicker">Помощь без готового ответа</span><h3>Застряли на шаге?</h3><p>Сначала вопрос-направление, затем правило и только потом первый вычислительный шаг.</p></div>${renderAIModelBadge()}</header>
+    <div class="ai-hint-list" id="ai-hint-list">${renderAIHintItems(hints)}</div>
+    <button class="secondary-button ai-hint-button" id="ai-hint-button" type="button" ${disabled ? "disabled" : ""}>${buttonLabel}</button>
+  </section>`;
+}
+
+async function requestAIHint() {
+  const task = state.lesson.practice_task;
+  const hints = state.aiHints[task.lesson_task_key] || [];
+  const level = hints.length + 1;
+  if (level > 3) return;
+  const button = document.querySelector("#ai-hint-button");
+  button.disabled = true;
+  button.textContent = "Готовлю подсказку…";
+  try {
+    const hint = await aiRequest("/hint", {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: sessionId,
+        lesson_unit_id: state.lesson.unit_id,
+        lesson_task_key: task.lesson_task_key,
+        level,
+      }),
+    });
+    state.aiHints[task.lesson_task_key] = [...hints, hint];
+    document.querySelector("#ai-hint-list").innerHTML = renderAIHintItems(state.aiHints[task.lesson_task_key]);
+    const nextLevel = level + 1;
+    button.textContent = nextLevel > 3 ? "Все подсказки получены" : `Подсказка ${nextLevel} из 3`;
+    button.disabled = nextLevel > 3;
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = `Подсказка ${level} из 3`;
+    toast(error.message);
+  }
+}
+
+function bindAIHintControls() {
+  document.querySelector("#ai-hint-button")?.addEventListener("click", requestAIHint);
+}
+
+function renderAIErrorAnswer(answer) {
+  if (!answer) return "";
+  return `<article class="ai-error-answer">
+    <span>AI-разбор фактической попытки</span><h4>${escapeHtml(answer.diagnosis)}</h4>
+    <dl><div><dt>На чём основан вывод</dt><dd>${escapeHtml(answer.evidence)}</dd></div><div><dt>Почему возникла ошибка</dt><dd>${escapeHtml(answer.explanation)}</dd></div><div><dt>Короткий микроурок</dt><dd>${escapeHtml(answer.micro_lesson)}</dd></div><div><dt>Следующее действие</dt><dd>${escapeHtml(answer.next_action)}</dd></div></dl>
+    <small>${escapeHtml(answer.confidence_note)}</small>
+  </article>`;
+}
+
+function renderAIErrorAction(attemptId) {
+  const disabled = aiReady() ? "" : "disabled";
+  return `<section class="ai-error-control">
+    <div><b>Понять причину ошибки</b><span>${aiReady() ? "ИИ сопоставит ответ с решением и текущей теорией." : "AI-разбор станет доступен после подключения ключа."}</span></div>
+    <button class="secondary-button" type="button" data-ai-error="${escapeHtml(attemptId)}" ${disabled}>Разобрать с ИИ</button>
+    <div class="ai-response-slot" id="ai-error-response" aria-live="polite"></div>
+  </section>`;
+}
+
+async function requestAIErrorAnalysis(event) {
+  const button = event.currentTarget;
+  const attemptId = button.dataset.aiError;
+  button.disabled = true;
+  button.textContent = "Анализирую…";
+  try {
+    const answer = await aiRequest("/analyze-error", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId, attempt_id: attemptId }),
+    });
+    document.querySelector("#ai-error-response").innerHTML = renderAIErrorAnswer(answer);
+    button.textContent = "Разбор готов";
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Разобрать с ИИ";
+    toast(error.message);
+  }
+}
+
+function bindAIErrorAnalysis() {
+  document.querySelector("[data-ai-error]")?.addEventListener("click", requestAIErrorAnalysis);
+}
+
 function renderDetailedTheory(chapter) {
   const scope = chapter.exam_scope;
   const lastPage = chapter.sections.length - 1;
@@ -561,6 +742,7 @@ function renderLessons() {
       <h2>${lesson.theory.title}</h2>
       <p class="lesson-summary">${lesson.theory.summary}</p>
       ${renderLessonTheory(lesson.theory)}
+      ${renderAITheoryPanel(lesson)}
       ${!lesson.theory.sections?.length || state.lessonTheoryPage === lesson.theory.sections.length - 1 ? `<aside class="theory-tip"><b>Совет перед практикой</b>${lesson.theory.tip}</aside>` : ""}
       ${renderTheoryActions(lesson.theory, reviewingTheory, lesson)}
     </article>` : `<article class="lesson-panel lesson-task">
@@ -568,6 +750,7 @@ function renderLessons() {
       <div class="practice-toolbar"><div><span>Задача ${lesson.practice.current_task_number} из ${lesson.practice.total_tasks}</span><i><b style="width:${lesson.practice.attempted_tasks / lesson.practice.total_tasks * 100}%"></b></i></div><button class="secondary-button" id="review-theory">← Вернуться к теории</button></div>
       <div class="task-meta"><span class="tag accent">Задание ${task.exam_number}</span><span class="tag">${difficultyLabel(task.difficulty)}</span><span class="tag">Код ${task.codifier_code}</span><span class="tag topic-tag">Тема: ${escapeHtml(lesson.topic.short_title)}</span></div>
       <h2>${task.title}</h2><p class="task-prompt">${task.prompt}</p>
+      ${renderAIHintPanel(lesson)}
       <form class="answer-block" id="lesson-answer-form"><label for="lesson-answer">Ваш ответ</label><div class="answer-row">
         <input id="lesson-answer" name="answer" autocomplete="off" placeholder="Введите ответ" required>
         <button class="primary-button" type="submit">Проверить</button></div></form>
@@ -585,13 +768,17 @@ function renderLessons() {
       ${stepContent}
     </section>`;
   bindGoButtons();
-  if (isTheory) bindTheoryPageControls();
+  if (isTheory) {
+    bindTheoryPageControls();
+    bindAITheoryControls();
+  }
   if (currentStep === "theory") {
     document.querySelector("#complete-theory")?.addEventListener("click", completeCurrentTheory);
   } else if (reviewingTheory) {
     document.querySelectorAll("[data-return-practice]").forEach((button) => button.addEventListener("click", returnToPractice));
   } else {
     document.querySelector("#review-theory").addEventListener("click", reviewCurrentTheory);
+    bindAIHintControls();
     document.querySelector("#lesson-answer-form").addEventListener("submit", submitLessonAnswer);
   }
 }
@@ -708,9 +895,11 @@ async function submitLessonAnswer(event) {
     document.querySelector("#feedback-slot").innerHTML = `<div class="feedback ${result.is_correct ? "correct" : "incorrect"}">
       <b>${result.is_correct ? correctTitle : incorrectTitle}</b>
       ${result.is_correct ? "" : `Верный ответ: ${escapeHtml(result.correct_answer)}.<br>`}${result.explanation}<br><span style="opacity:.78">${result.recommendation}</span>
+      ${result.is_correct ? "" : renderAIErrorAction(result.attempt.id)}
       <div class="feedback-action"><button class="primary-button" id="lesson-next">${result.lesson_unit_complete ? "Следующий урок" : `Следующая задача по теме «${escapeHtml(practiceTopic)}»`} →</button>${result.lesson_unit_complete ? '<button class="secondary-button" id="lesson-homework">Открыть ДЗ отдельно</button>' : ""}</div>
     </div>`;
     form.classList.add("hidden");
+    if (!result.is_correct) bindAIErrorAnalysis();
     document.querySelector("#lesson-next").addEventListener("click", renderLessons);
     document.querySelector("#lesson-homework")?.addEventListener("click", () => goTo("homework"));
   } catch (error) {
@@ -753,9 +942,11 @@ async function submitHomeworkAnswer(event) {
     document.querySelector("#feedback-slot").innerHTML = `<div class="feedback ${result.is_correct ? "correct" : "incorrect"}">
       <b>${title}</b>
       ${result.is_correct ? "" : `Верный ответ: ${escapeHtml(result.correct_answer)}.<br>`}${escapeHtml(result.explanation)}<br><span style="opacity:.78">${escapeHtml(result.recommendation)}</span>
+      ${result.is_correct ? "" : renderAIErrorAction(result.attempt.id)}
       <div class="feedback-action"><button class="primary-button" id="homework-next">${result.homework_unit_complete ? "Готово" : "Следующая задача"} →</button></div>
     </div>`;
     form.classList.add("hidden");
+    if (!result.is_correct) bindAIErrorAnalysis();
     document.querySelector("#homework-next").addEventListener("click", () => {
       if (state.homework.status === "active") renderHomework();
       else goTo("dashboard");

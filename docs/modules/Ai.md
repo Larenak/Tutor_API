@@ -696,6 +696,49 @@ knowledge
 
 # API / Интерфейсы
 
+## Реализованный MVP-контур
+
+Первая интеграция использует настраиваемый AI Provider и поддерживает как прямой
+DeepSeek API, так и DeepSeek через OpenRouter. Ключ читается из `DEEPSEEK_API_KEY`
+или `OPENROUTER_API_KEY`; без ключа основной учебный поток продолжает работать, а
+AI API возвращает контролируемый `503`. Ключ `sk-or-*` в старой переменной
+`DEEPSEEK_API_KEY` автоматически направляется в OpenRouter.
+
+Реализованы интерфейсы:
+
+```
+GET  /api/v1/ai/status
+POST /api/v1/ai/explain-theory
+POST /api/v1/ai/hint
+POST /api/v1/ai/analyze-error
+```
+
+Ограничения первого контура:
+
+- объяснение строится только по разделу текущего roadmap-урока;
+- подсказки доступны только для текущей задачи практики и имеют три уровня;
+- подсказка не должна сообщать окончательный ответ;
+- разбор ошибки запускается только для сохранённой неверной попытки пользователя;
+- при коротком ответе без хода решения AI обязан сообщать об ограниченной уверенности;
+- AI не изменяет Progress и Roadmap и не является источником правильного ответа;
+- ответ модели проходит проверку структурированной Pydantic-схемой.
+
+Переменные окружения:
+
+```
+AI_PROVIDER=deepseek
+DEEPSEEK_API_KEY=
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_TIMEOUT_SECONDS=30
+OPENROUTER_API_KEY=
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=deepseek/deepseek-v4-flash-0731
+OPENROUTER_TIMEOUT_SECONDS=90
+OPENROUTER_SITE_URL=http://127.0.0.1:8000
+OPENROUTER_APP_NAME=AI Tutor
+```
+
 ## POST /ai/chat
 
 Назначение:

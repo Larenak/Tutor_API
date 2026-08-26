@@ -1900,6 +1900,180 @@ def list_theory(topic_id: str | None = None) -> list[dict[str, object]]:
     return deepcopy(chapters)
 
 
+def _lesson_unit_by_id(unit_id: str) -> dict[str, object]:
+    unit = next((item for item in _lesson_units() if item["id"] == unit_id), None)
+    if unit is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson unit not found")
+    return unit
+
+
+def _lesson_task_by_key(
+    unit: dict[str, object],
+    mode: str,
+    lesson_task_key: str,
+) -> dict[str, object]:
+    collection_name = "homework_tasks" if mode == "homework" else "practice_tasks"
+    task = next(
+        (
+            item
+            for item in unit[collection_name]
+            if item.get("lesson_task_key") == lesson_task_key
+        ),
+        None,
+    )
+    if task is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lesson task not found",
+        )
+    return task
+
+
+def _theory_sections_for_task(
+    theory: dict[str, object],
+    task: dict[str, object],
+) -> list[dict[str, object]]:
+    sections = theory.get("sections", [])
+    subtopic_ids = set(task.get("subtopic_ids", []))
+    matching = [section for section in sections if section.get("id") in subtopic_ids]
+    if matching:
+        return deepcopy(matching)
+    return deepcopy(sections[:1])
+
+
+def get_ai_theory_context(
+    session_id: str,
+    lesson_unit_id: str,
+    theory_section_id: str,
+) -> dict[str, object]:
+    lesson = get_current_lesson(session_id)
+    if lesson.get("status") != "active" or lesson.get("unit_id") != lesson_unit_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="AI can explain only the current roadmap lesson",
+        )
+    theory = lesson["theory"]
+    section = next(
+        (item for item in theory.get("sections", []) if item.get("id") == theory_section_id),
+        None,
+    )
+    if section is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Theory section not found in the current lesson",
+        )
+    attempts = _session_attempts(session_id)
+    topic_id = str(lesson["topic"]["id"])
+    recent_topic_attempts = [
+        {
+            "is_correct": bool(attempt["is_correct"]),
+            "duration_seconds": int(attempt["duration_seconds"]),
+            "mode": str(attempt["mode"]),
+        }
+        for attempt in attempts
+        if str(_task(str(attempt["task_id"]))["topic_id"]) == topic_id
+    ][-5:]
+    return {
+        "exam": "ЕГЭ по профильной математике",
+        "topic": deepcopy(lesson["topic"]),
+        "theory_title": theory["title"],
+        "exam_scope": deepcopy(theory.get("exam_scope", {})),
+        "section": deepcopy(section),
+        "typical_mistakes": deepcopy(theory.get("mistakes", [])),
+        "recent_topic_attempts": recent_topic_attempts,
+    }
+
+
+def get_ai_hint_context(
+    session_id: str,
+    lesson_unit_id: str,
+    lesson_task_key: str,
+) -> dict[str, object]:
+    lesson = get_current_lesson(session_id)
+    current_task = lesson.get("practice_task", {})
+    if (
+        lesson.get("status") != "active"
+        or lesson.get("unit_id") != lesson_unit_id
+        or lesson.get("current_step") != "practice"
+        or current_task.get("lesson_task_key") != lesson_task_key
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="AI hints are available only for the current roadmap practice task",
+        )
+    unit = _lesson_unit_by_id(lesson_unit_id)
+    task = _lesson_task_by_key(unit, "practice", lesson_task_key)
+    return {
+        "exam": "ЕГЭ по профильной математике",
+        "topic": deepcopy(lesson["topic"]),
+        "task": {
+            "title": task["title"],
+            "prompt": task["prompt"],
+            "exam_number": task["exam_number"],
+            "difficulty": task["difficulty"],
+        },
+        "relevant_theory_sections": _theory_sections_for_task(unit["theory"], task),
+        "lesson_progress": deepcopy(lesson["practice"]),
+    }
+
+
+def _attempt_task_context(attempt: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:
+    unit_id = attempt.get("lesson_unit_id")
+    lesson_task_key = attempt.get("lesson_task_key")
+    mode = str(attempt.get("mode", "diagnostic"))
+    if unit_id and lesson_task_key and mode in {"practice", "homework"}:
+        unit = _lesson_unit_by_id(str(unit_id))
+        return _lesson_task_by_key(unit, mode, str(lesson_task_key)), unit["theory"]
+
+    task = _task(str(attempt["task_id"]))
+    theory = next(item for item in THEORY if item["topic_id"] == task["topic_id"])
+    return task, theory
+
+
+def get_ai_error_context(session_id: str, attempt_id: str) -> dict[str, object]:
+    attempts = _session_attempts(session_id)
+    attempt = next((item for item in attempts if item["id"] == attempt_id), None)
+    if attempt is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+    if bool(attempt["is_correct"]):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="AI error analysis requires an incorrect attempt",
+        )
+
+    task, theory = _attempt_task_context(attempt)
+    topic = next(item for item in TOPICS if item["id"] == task["topic_id"])
+    topic_attempts = [
+        item for item in attempts if _task(str(item["task_id"]))["topic_id"] == task["topic_id"]
+    ]
+    return {
+        "exam": "ЕГЭ по профильной математике",
+        "topic": deepcopy(topic),
+        "task": {
+            "title": task["title"],
+            "prompt": task["prompt"],
+            "exam_number": task["exam_number"],
+            "difficulty": task["difficulty"],
+        },
+        "student_attempt": {
+            "answer": attempt["answer"],
+            "duration_seconds": attempt["duration_seconds"],
+            "mode": attempt["mode"],
+        },
+        "verified_answer": deepcopy(task["answer_aliases"][0]),
+        "verified_solution": deepcopy(task["explanation"]),
+        "relevant_theory_sections": _theory_sections_for_task(theory, task),
+        "topic_history": {
+            "attempts": len(topic_attempts),
+            "correct": sum(bool(item["is_correct"]) for item in topic_attempts),
+            "recent_results": [bool(item["is_correct"]) for item in topic_attempts[-5:]],
+        },
+        "evidence_limit": (
+            "The student submitted only a short answer. The exact first wrong step is unknown."
+        ),
+    }
+
+
 def submit_attempt(
     session_id: str,
     task_id: str,

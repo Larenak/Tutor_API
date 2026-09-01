@@ -20,7 +20,8 @@ class Settings(BaseSettings):
     openrouter_api_key: SecretStr | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_model: str = "deepseek/deepseek-v4-flash-0731"
-    openrouter_timeout_seconds: float = 90.0
+    openrouter_timeout_seconds: float = 25.0
+    openrouter_max_retries: int = 2
     openrouter_site_url: str = "http://127.0.0.1:8000"
     openrouter_app_name: str = "AI Tutor"
 

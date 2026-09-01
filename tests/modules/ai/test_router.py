@@ -29,13 +29,17 @@ class StubAIProvider:
         *,
         system_prompt: str,
         user_payload: dict[str, object],
-        max_tokens: int = 900,
+        max_tokens: int = 650,
+        json_schema: dict[str, Any] | None = None,
+        schema_name: str = "ai_response",
     ) -> dict[str, Any]:
         self.calls.append(
             {
                 "system_prompt": system_prompt,
                 "user_payload": user_payload,
                 "max_tokens": max_tokens,
+                "json_schema": json_schema,
+                "schema_name": schema_name,
             }
         )
         return dict(self.response)
@@ -51,7 +55,9 @@ class FailingAIProvider(StubAIProvider):
         *,
         system_prompt: str,
         user_payload: dict[str, object],
-        max_tokens: int = 900,
+        max_tokens: int = 650,
+        json_schema: dict[str, Any] | None = None,
+        schema_name: str = "ai_response",
     ) -> dict[str, Any]:
         raise self.error
 
@@ -99,7 +105,8 @@ def test_openrouter_key_is_detected_even_in_legacy_deepseek_variable(monkeypatch
         openrouter_api_key=None,
         openrouter_base_url="https://openrouter.ai/api/v1",
         openrouter_model="deepseek/deepseek-v4-flash-0731",
-        openrouter_timeout_seconds=90.0,
+        openrouter_timeout_seconds=25.0,
+        openrouter_max_retries=2,
         openrouter_site_url="http://127.0.0.1:8000",
         openrouter_app_name="AI Tutor",
     )
@@ -114,7 +121,17 @@ def test_openrouter_key_is_detected_even_in_legacy_deepseek_variable(monkeypatch
         "HTTP-Referer": "http://127.0.0.1:8000",
         "X-OpenRouter-Title": "AI Tutor",
     }
-    assert provider.request_extra == {"reasoning": {"effort": "none"}}
+    assert provider.request_extra == {
+        "reasoning": {"effort": "none"},
+        "provider": {
+            "sort": "throughput",
+            "allow_fallbacks": True,
+            "require_parameters": True,
+        },
+        "plugins": [{"id": "response-healing"}],
+    }
+    assert provider.timeout_seconds == 25.0
+    assert provider.max_retries == 2
 
 
 def test_ai_explains_only_a_section_from_current_lesson(client: TestClient) -> None:
@@ -123,10 +140,18 @@ def test_ai_explains_only_a_section_from_current_lesson(client: TestClient) -> N
     section = lesson["theory"]["sections"][0]
     provider = StubAIProvider(
         {
-            "title": "Координаты — это смещение",
-            "explanation": "Считайте путь от начала стрелки к её концу.",
+            "title": "Почему берём конец минус начало",
+            "explanation_style": "why",
+            "explanation": "Вычитание показывает движение от A к B.",
+            "key_rule": "AB = (xB − xA; yB − yA)",
+            "steps": ["Запишите координаты A.", "Вычтите их из координат B."],
             "example": "Три клетки вправо и две вниз дают (3; −2).",
+            "common_mistake": "Если поменять точки местами, получится вектор BA.",
             "check_question": "Какой знак будет у второй координаты при движении вниз?",
+            "check_answer": "минус",
+            "accepted_answers": ["минус", "отрицательный", "отрицательный знак"],
+            "check_hint": "Вспомните, как направлена положительная полуось y.",
+            "check_explanation": "При движении вниз координата y уменьшается.",
         }
     )
     app.dependency_overrides[get_ai_provider] = lambda: provider
@@ -145,9 +170,18 @@ def test_ai_explains_only_a_section_from_current_lesson(client: TestClient) -> N
     data = response.json()["data"]
     assert data["theory_section_id"] == section["id"]
     assert data["provider"] == "deepseek"
+    assert data["question"] == "Объясни проще"
+    assert data["explanation_style"] == "why"
+    assert data["check_answer"] == "минус"
+    assert "отрицательный" in data["accepted_answers"]
     context = provider.calls[0]["user_payload"]["context"]
     assert context["section"]["id"] == section["id"]
     assert context["student_question"] == "Объясни проще"
+    assert provider.calls[0]["max_tokens"] == 650
+    assert provider.calls[0]["schema_name"] == "TheoryExplanationGenerated"
+    assert provider.calls[0]["json_schema"]["additionalProperties"] is False
+    assert "Ответь именно на student_question" in provider.calls[0]["system_prompt"]
+    assert "В check_hint не раскрывай ответ" in provider.calls[0]["system_prompt"]
 
 
 def test_ai_hint_is_bound_to_current_roadmap_practice_task(client: TestClient) -> None:

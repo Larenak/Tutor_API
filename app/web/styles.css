@@ -487,13 +487,36 @@ a { color: inherit; }
 .ai-setup-note { margin: 12px 0 0; color: var(--ink-soft); font-size: 11px; line-height: 1.5; }
 .ai-setup-note code { color: #55517f; font-weight: 750; }
 .ai-response-slot:empty { display: none; }
+.ai-request-state { margin-top: 17px; padding: 14px 16px; display: grid; gap: 4px; border: 1px solid #d8d5ea; border-radius: 11px; color: var(--ink-soft); background: rgba(255,255,255,.7); }
+.ai-request-state b { color: var(--ink); font-size: 12px; }
+.ai-request-state span { font-size: 11px; line-height: 1.55; }
+.ai-request-state.loading { border-color: rgba(47,141,128,.24); background: var(--teal-soft); }
+.ai-request-state.error { border-color: rgba(169,83,54,.24); background: #fff3ed; }
 .ai-answer, .ai-error-answer { margin-top: 17px; padding: 18px; border: 1px solid rgba(111,107,178,.17); border-radius: 12px; background: rgba(255,255,255,.84); }
 .ai-answer > span, .ai-error-answer > span { color: var(--purple); font-size: 9px; font-weight: 850; letter-spacing: .09em; text-transform: uppercase; }
 .ai-answer h4, .ai-error-answer h4 { margin: 7px 0 9px; font-family: Georgia, serif; font-size: 20px; font-weight: 500; }
-.ai-answer > p, .ai-example p, .ai-self-check p { margin: 0; color: var(--ink-soft); font-size: 13px; line-height: 1.65; white-space: pre-line; }
-.ai-example, .ai-self-check { margin-top: 12px; padding: 12px 14px; border-radius: 9px; background: var(--teal-soft); }
+.ai-answer > p, .ai-answer div p, .ai-example p, .ai-self-check p { margin: 0; color: var(--ink-soft); font-size: 13px; line-height: 1.65; white-space: pre-line; }
+.ai-direct-answer { margin-top: 12px !important; color: var(--ink) !important; font-size: 14px !important; }
+.ai-asked-question { margin: 10px 0 0; padding: 10px 12px; border-left: 3px solid var(--purple); background: #f5f3fb; }
+.ai-asked-question b, .ai-key-rule b, .ai-common-mistake b { display: block; margin-bottom: 4px; color: var(--ink); font-size: 10px; }
+.ai-key-rule { margin-top: 13px; padding: 12px 14px; border-radius: 9px; color: #4c4973; background: #eeecf8; }
+.ai-explanation-steps { margin: 13px 0 0; padding: 0; display: grid; gap: 8px; list-style: none; counter-reset: ai-step; }
+.ai-explanation-steps li { position: relative; min-height: 30px; padding: 7px 10px 7px 38px; border-radius: 8px; color: var(--ink-soft); background: #f7f7f3; font-size: 12px; line-height: 1.55; counter-increment: ai-step; }
+.ai-explanation-steps li::before { content: counter(ai-step); position: absolute; top: 7px; left: 9px; width: 21px; height: 21px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: var(--purple); font-size: 9px; font-weight: 800; }
+.ai-example, .ai-self-check, .ai-common-mistake { margin-top: 12px; padding: 12px 14px; border-radius: 9px; background: var(--teal-soft); }
+.ai-common-mistake { background: #fff0e9; }
 .ai-self-check { background: #f8f1d9; }
-.ai-example b, .ai-self-check b { display: block; margin-bottom: 4px; color: var(--ink); font-size: 10px; }
+.ai-example b, .ai-self-check b, .ai-common-mistake b { display: block; margin-bottom: 4px; color: var(--ink); font-size: 10px; }
+.ai-self-check-form { margin-top: 11px; display: flex; gap: 8px; }
+.ai-self-check-form input { min-width: 0; height: 42px; padding: 0 12px; flex: 1; border: 1px solid #d5c98e; border-radius: 9px; outline: none; background: rgba(255,255,255,.86); }
+.ai-self-check-form input:focus { border-color: #a48735; box-shadow: 0 0 0 3px rgba(164,135,53,.13); }
+.ai-self-check-form button { min-height: 42px; }
+.ai-self-check-feedback { margin-top: 9px; padding: 9px 11px; display: grid; gap: 2px; border-radius: 8px; font-size: 11px; line-height: 1.5; }
+.ai-self-check-feedback b { margin: 0; font-size: 10px; }
+.ai-self-check-feedback span { color: var(--ink-soft); }
+.ai-self-check-feedback.success { background: #e3f3ec; }
+.ai-self-check-feedback.retry { background: #fff0dc; }
+.ai-self-check-feedback.revealed { background: #eeecf8; }
 .ai-answer > small { display: block; margin-top: 12px; color: #85828f; font-size: 9px; }
 .hint-ai-card { margin: 22px 0 4px; }
 .ai-hint-list { margin-top: 16px; display: grid; gap: 8px; }
@@ -792,6 +815,8 @@ a { color: inherit; }
   .ai-model-badge { justify-self: start; }
   .ai-question-form > div { display: grid; }
   .ai-question-form button, .ai-hint-button { width: 100%; }
+  .ai-self-check-form { display: grid; }
+  .ai-self-check-form button { width: 100%; }
   .ai-error-control { grid-template-columns: 1fr; }
   .ai-error-control > button, .ai-error-control > .ai-response-slot { grid-column: 1; }
   .exam-scope, .theory-section, .exam-pattern-section { padding: 20px; }

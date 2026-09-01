@@ -45,11 +45,15 @@ async def _generate[GeneratedT: BaseModel](
     system_prompt: str,
     context: dict[str, object],
     output_model: type[GeneratedT],
+    max_tokens: int,
 ) -> GeneratedT:
     try:
         payload = await provider.generate_json(
             system_prompt=system_prompt,
             user_payload={"context": context, "instruction": "Сформируй ответ в JSON."},
+            max_tokens=max_tokens,
+            json_schema=output_model.model_json_schema(),
+            schema_name=output_model.__name__,
         )
         return output_model.model_validate(payload)
     except AIProviderNotConfigured as error:
@@ -79,10 +83,18 @@ async def _generate[GeneratedT: BaseModel](
                 "Попробуйте немного позже."
             ),
         ) from error
-    except (AIProviderRequestFailed, ValidationError) as error:
+    except AIProviderRequestFailed as error:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="ИИ временно не смог подготовить корректный ответ. Попробуйте ещё раз.",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "ИИ не успел ответить или провайдер временно недоступен. "
+                "Повторите запрос — предыдущий ответ не будет показан вместо нового."
+            ),
+        ) from error
+    except ValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Ответ ИИ получился неполным. Повторите вопрос другими словами.",
         ) from error
 
 
@@ -109,20 +121,34 @@ async def explain_theory(
         provider,
         system_prompt=f"""{_COMMON_RULES}
 
-Объясни только текущий раздел теории на уровне ученика. Используй экзаменационно
-релевантные правила из контекста, один новый короткий пример и один вопрос для
-самопроверки. Не переходи к другой теме.
+Ответь именно на student_question, а не пересказывай весь раздел. Сначала определи
+намерение вопроса и выбери explanation_style:
+- why — ученик спрашивает «почему»; объясни причинную связь;
+- algorithm — спрашивает «как» или просит алгоритм; дай чёткую последовательность;
+- worked_example — просит пример или прислал числа; разбери пример по действиям;
+- definition — спрашивает значение термина; дай определение и отличие от похожего;
+- simple — просит проще или сообщает, что запутался; начни с бытовой интуиции.
 
-JSON-поля: title, explanation, example, check_question.
+Первое предложение должно прямо отвечать на вопрос ученика. Не начинай каждый ответ
+с общего определения темы и не повторяй текст страницы. Пиши короткими предложениями.
+В steps дай 2–4 конкретных шага. В example используй новые числа и покажи вычисления.
+common_mistake свяжи с формулировкой вопроса. check_question должен проверять ровно
+объяснённую мысль и решаться в одно действие. Не добавляй в check_question ответ,
+решение или подсказку. Сделай ответ однозначным и коротким. В check_answer верни
+эталон, а в accepted_answers — 1–6 допустимых вариантов его записи, обязательно
+включая check_answer. В check_hint не раскрывай ответ. В check_explanation кратко
+объясни, почему ответ верный. Не переходи к другой теме.
 """,
         context=context,
         output_model=TheoryExplanationGenerated,
+        max_tokens=650,
     )
     return TheoryExplanationRead(
         **generated.model_dump(),
         provider=provider.provider_name,
         model=provider.model,
         theory_section_id=payload.theory_section_id,
+        question=payload.question,
     )
 
 
@@ -145,6 +171,7 @@ JSON-поля: focus, hint, self_check.
 """,
         context=context,
         output_model=HintGenerated,
+        max_tokens=350,
     )
     return HintRead(
         **generated.model_dump(),
@@ -174,6 +201,7 @@ confidence_note.
 """,
         context=context,
         output_model=ErrorAnalysisGenerated,
+        max_tokens=750,
     )
     return ErrorAnalysisRead(
         **generated.model_dump(),

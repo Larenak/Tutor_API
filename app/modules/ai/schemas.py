@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ExplainTheoryCreate(BaseModel):
@@ -33,11 +33,73 @@ class AIStatusRead(BaseModel):
     capabilities: list[str]
 
 
-class TheoryExplanationGenerated(BaseModel):
-    title: str = Field(min_length=1, max_length=140)
-    explanation: str = Field(min_length=1, max_length=2500)
-    example: str = Field(min_length=1, max_length=1200)
-    check_question: str = Field(min_length=1, max_length=500)
+class GeneratedResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class TheoryExplanationGenerated(GeneratedResponse):
+    title: str = Field(
+        min_length=1,
+        max_length=140,
+        description="Короткий заголовок, отражающий конкретный вопрос ученика.",
+    )
+    explanation_style: Literal[
+        "simple",
+        "why",
+        "algorithm",
+        "worked_example",
+        "definition",
+    ] = Field(description="Способ объяснения, выбранный по формулировке вопроса.")
+    explanation: str = Field(
+        min_length=1,
+        max_length=1000,
+        description="Прямой ответ на вопрос ученика простыми короткими предложениями.",
+    )
+    key_rule: str = Field(
+        min_length=1,
+        max_length=350,
+        description="Одна формула или ключевая мысль, нужная именно для вопроса.",
+    )
+    steps: list[str] = Field(
+        min_length=2,
+        max_length=4,
+        description="От двух до четырёх коротких шагов рассуждения или решения.",
+    )
+    example: str = Field(
+        min_length=1,
+        max_length=800,
+        description="Новый полностью разобранный пример с конкретными числами.",
+    )
+    common_mistake: str = Field(
+        min_length=1,
+        max_length=400,
+        description="Ошибка, наиболее вероятная именно после этого вопроса.",
+    )
+    check_question: str = Field(
+        min_length=1,
+        max_length=350,
+        description="Один короткий вопрос для проверки понимания, без ответа и подсказки.",
+    )
+    check_answer: str = Field(
+        min_length=1,
+        max_length=120,
+        description="Короткий эталонный ответ на вопрос для самопроверки.",
+    )
+    accepted_answers: list[str] = Field(
+        min_length=1,
+        max_length=6,
+        description="Допустимые варианты записи ответа, включая эталонный ответ.",
+    )
+    check_hint: str = Field(
+        min_length=1,
+        max_length=300,
+        description="Подсказка после первой ошибки, не раскрывающая ответ.",
+    )
+    check_explanation: str = Field(
+        min_length=1,
+        max_length=450,
+        description="Короткое объяснение правильного ответа после проверки.",
+    )
 
 
 class TheoryExplanationRead(TheoryExplanationGenerated):
@@ -45,9 +107,10 @@ class TheoryExplanationRead(TheoryExplanationGenerated):
     provider: str
     model: str
     theory_section_id: str
+    question: str
 
 
-class HintGenerated(BaseModel):
+class HintGenerated(GeneratedResponse):
     focus: str = Field(min_length=1, max_length=300)
     hint: str = Field(min_length=1, max_length=1000)
     self_check: str = Field(min_length=1, max_length=500)
@@ -61,7 +124,7 @@ class HintRead(HintGenerated):
     lesson_task_key: str
 
 
-class ErrorAnalysisGenerated(BaseModel):
+class ErrorAnalysisGenerated(GeneratedResponse):
     diagnosis: str = Field(min_length=1, max_length=500)
     evidence: str = Field(min_length=1, max_length=700)
     explanation: str = Field(min_length=1, max_length=1800)

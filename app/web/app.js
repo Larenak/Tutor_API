@@ -24,6 +24,7 @@ const state = {
   lessonTheoryUnitId: null,
   aiStatus: null,
   aiTheoryAnswers: {},
+  aiTheoryChecks: {},
   aiHints: {},
   dashboardSelectedDate: null,
   dashboardCalendarMonth: null,
@@ -473,13 +474,69 @@ function renderAIModelBadge() {
   return `<span class="ai-model-badge ${aiReady() ? "ready" : "waiting"}"><i></i>${aiReady() ? `${aiProviderLabel()} подключён` : "ожидает API-ключ"}</span>`;
 }
 
-function renderAITheoryAnswer(answer) {
+function aiExplanationStyleLabel(style) {
+  return {
+    simple: "простыми словами",
+    why: "объяснение причины",
+    algorithm: "алгоритм по шагам",
+    worked_example: "разбор на примере",
+    definition: "точное определение",
+  }[style] || "персональное объяснение";
+}
+
+function renderAIRequestState(kind, message) {
+  const title = kind === "loading" ? "Готовлю новый ответ…" : "Ответ не получен";
+  return `<div class="ai-request-state ${kind}" role="status"><b>${title}</b><span>${escapeHtml(message)}</span></div>`;
+}
+
+function renderAISelfCheckFeedback(answer, checkState) {
+  if (!checkState) return "";
+  if (checkState.correct) {
+    return `<div class="ai-self-check-feedback success" role="status"><b>Верно</b><span>${escapeHtml(answer.check_explanation)}</span></div>`;
+  }
+  if (checkState.revealed) {
+    return `<div class="ai-self-check-feedback revealed" role="status"><b>Разберём ответ</b><span>Верный ответ: ${escapeHtml(answer.check_answer)}. ${escapeHtml(answer.check_explanation)}</span></div>`;
+  }
+  return `<div class="ai-self-check-feedback retry" role="status"><b>Пока не так</b><span>${escapeHtml(answer.check_hint)}</span></div>`;
+}
+
+function normalizeAISelfCheckAnswer(value) {
+  return String(value)
+    .trim()
+    .toLocaleLowerCase("ru-RU")
+    .replaceAll("ё", "е")
+    .replace(/[−–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/[.!?]+$/g, "")
+    .trim();
+}
+
+function isAISelfCheckCorrect(answer, studentAnswer) {
+  const accepted = [answer.check_answer, ...(answer.accepted_answers || [])]
+    .map(normalizeAISelfCheckAnswer);
+  return accepted.includes(normalizeAISelfCheckAnswer(studentAnswer));
+}
+
+function renderAITheoryAnswer(answer, answerKey = "") {
   if (!answer) return "";
+  const steps = Array.isArray(answer.steps) ? answer.steps : [];
+  const checkReady = Boolean(answerKey && answer.check_answer && answer.check_hint && answer.check_explanation);
+  const checkState = state.aiTheoryChecks[answerKey];
+  const checkResolved = Boolean(checkState?.correct || checkState?.revealed);
   return `<article class="ai-answer">
-    <span>Персональное объяснение</span><h4>${escapeHtml(answer.title)}</h4>
-    <p>${escapeHtml(answer.explanation)}</p>
-    <div class="ai-example"><b>Новый пример</b><p>${escapeHtml(answer.example)}</p></div>
-    <div class="ai-self-check"><b>Проверь себя</b><p>${escapeHtml(answer.check_question)}</p></div>
+    <span>${escapeHtml(aiExplanationStyleLabel(answer.explanation_style))}</span><h4>${escapeHtml(answer.title)}</h4>
+    ${answer.question ? `<div class="ai-asked-question"><b>Ваш вопрос</b><p>${escapeHtml(answer.question)}</p></div>` : ""}
+    <p class="ai-direct-answer">${escapeHtml(answer.explanation)}</p>
+    ${answer.key_rule ? `<div class="ai-key-rule"><b>Главное правило</b><p>${escapeHtml(answer.key_rule)}</p></div>` : ""}
+    ${steps.length ? `<ol class="ai-explanation-steps">${steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ol>` : ""}
+    <div class="ai-example"><b>Разберём на новых числах</b><p>${escapeHtml(answer.example)}</p></div>
+    ${answer.common_mistake ? `<div class="ai-common-mistake"><b>Не перепутайте</b><p>${escapeHtml(answer.common_mistake)}</p></div>` : ""}
+    <div class="ai-self-check"><b>Проверь себя</b><p>${escapeHtml(answer.check_question)}</p>
+      ${checkReady ? `<form class="ai-self-check-form" data-ai-check-key="${escapeHtml(answerKey)}">
+        <input name="answer" maxlength="160" autocomplete="off" placeholder="Введите свой ответ" aria-label="Ответ на вопрос для самопроверки" required ${checkResolved ? "disabled" : ""}>
+        <button class="secondary-button" type="submit" ${checkResolved ? "disabled" : ""}>${checkResolved ? "Проверено" : "Проверить"}</button>
+      </form>${renderAISelfCheckFeedback(answer, checkState)}` : ""}
+    </div>
     <small>${escapeHtml(aiProviderLabel())} · только текущий раздел теории</small>
   </article>`;
 }
@@ -496,8 +553,8 @@ function renderAITheoryPanel(lesson) {
       <label for="ai-theory-question">Что осталось непонятно?</label>
       <div><input id="ai-theory-question" name="question" maxlength="500" placeholder="Например: объясни проще и приведи другой пример" ${disabled}><button class="secondary-button" type="submit" ${disabled}>Объяснить</button></div>
     </form>
-    ${aiReady() ? "" : '<p class="ai-setup-note">Интерфейс готов. После добавления <code>DEEPSEEK_API_KEY</code> в локальный .env кнопка станет активной.</p>'}
-    <div class="ai-response-slot" id="ai-theory-response" aria-live="polite">${renderAITheoryAnswer(answer)}</div>
+    ${aiReady() ? "" : '<p class="ai-setup-note">Интерфейс готов. После добавления <code>OPENROUTER_API_KEY</code> или <code>DEEPSEEK_API_KEY</code> в локальный .env кнопка станет активной.</p>'}
+    <div class="ai-response-slot" id="ai-theory-response" aria-live="polite">${renderAITheoryAnswer(answer, answerKey)}</div>
   </section>`;
 }
 
@@ -508,6 +565,13 @@ async function requestAITheoryExplanation(event) {
   const section = state.lesson.theory.sections[state.lessonTheoryPage];
   const answerKey = `${state.lesson.unit_id}:${section.id}`;
   const question = new FormData(form).get("question")?.trim() || "Объясни этот раздел проще и проверь, понял ли я его.";
+  const responseSlot = document.querySelector("#ai-theory-response");
+  delete state.aiTheoryAnswers[answerKey];
+  delete state.aiTheoryChecks[answerKey];
+  responseSlot.innerHTML = renderAIRequestState(
+    "loading",
+    "Отвечаю именно на этот вопрос; обычно это занимает несколько секунд.",
+  );
   button.disabled = true;
   button.textContent = "Объясняю…";
   try {
@@ -521,8 +585,10 @@ async function requestAITheoryExplanation(event) {
       }),
     });
     state.aiTheoryAnswers[answerKey] = answer;
-    document.querySelector("#ai-theory-response").innerHTML = renderAITheoryAnswer(answer);
+    responseSlot.innerHTML = renderAITheoryAnswer(answer, answerKey);
+    bindAISelfCheckForms();
   } catch (error) {
+    responseSlot.innerHTML = renderAIRequestState("error", error.message);
     toast(error.message);
   } finally {
     button.disabled = false;
@@ -530,8 +596,45 @@ async function requestAITheoryExplanation(event) {
   }
 }
 
+function submitAISelfCheck(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const answerKey = form.dataset.aiCheckKey;
+  const answer = state.aiTheoryAnswers[answerKey];
+  const input = form.elements.answer;
+  const studentAnswer = input.value.trim();
+  if (!answer || !studentAnswer) return;
+
+  const previousAttempts = state.aiTheoryChecks[answerKey]?.attempts || 0;
+  const attempts = previousAttempts + 1;
+  const correct = isAISelfCheckCorrect(answer, studentAnswer);
+  const revealed = !correct && attempts >= 2;
+  state.aiTheoryChecks[answerKey] = { attempts, correct, revealed };
+
+  const check = form.closest(".ai-self-check");
+  check.querySelector(".ai-self-check-feedback")?.remove();
+  check.insertAdjacentHTML(
+    "beforeend",
+    renderAISelfCheckFeedback(answer, state.aiTheoryChecks[answerKey]),
+  );
+  if (correct || revealed) {
+    input.disabled = true;
+    form.querySelector("button").disabled = true;
+    form.querySelector("button").textContent = "Проверено";
+  } else {
+    input.select();
+  }
+}
+
+function bindAISelfCheckForms() {
+  document.querySelectorAll(".ai-self-check-form").forEach((form) => {
+    form.addEventListener("submit", submitAISelfCheck);
+  });
+}
+
 function bindAITheoryControls() {
   document.querySelector("#ai-theory-form")?.addEventListener("submit", requestAITheoryExplanation);
+  bindAISelfCheckForms();
 }
 
 function renderAIHintItems(hints) {

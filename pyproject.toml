@@ -16,6 +16,9 @@ dependencies = [
   "uvicorn[standard]>=0.32",
 ]
 
+[project.scripts]
+ai-tutor = "app.__main__:main"
+
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3",

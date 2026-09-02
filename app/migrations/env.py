@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import get_settings
 from app.database.base import Base
-from app.modules.auth import models as auth_models
-from app.modules.users import models as user_models
+from app.modules.auth import models as auth_models  # noqa: F401
+from app.modules.users import models as user_models  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url)

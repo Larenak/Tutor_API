@@ -95,7 +95,7 @@ def test_ai_status_reports_provider_without_exposing_key(client: TestClient) -> 
     assert "key" not in response.text.lower()
 
 
-def test_openrouter_key_is_detected_even_in_legacy_deepseek_variable(monkeypatch) -> None:
+def test_openrouter_key_in_legacy_variable_is_forced_to_free_router(monkeypatch) -> None:
     settings = SimpleNamespace(
         ai_provider="deepseek",
         deepseek_api_key=SecretStr("sk-or-v1-test"),
@@ -105,6 +105,7 @@ def test_openrouter_key_is_detected_even_in_legacy_deepseek_variable(monkeypatch
         openrouter_api_key=None,
         openrouter_base_url="https://openrouter.ai/api/v1",
         openrouter_model="deepseek/deepseek-v4-flash-0731",
+        openrouter_free_only=True,
         openrouter_timeout_seconds=25.0,
         openrouter_max_retries=2,
         openrouter_site_url="http://127.0.0.1:8000",
@@ -116,22 +117,50 @@ def test_openrouter_key_is_detected_even_in_legacy_deepseek_variable(monkeypatch
 
     assert provider.provider_name == "openrouter"
     assert provider.base_url == "https://openrouter.ai/api/v1"
-    assert provider.model == "deepseek/deepseek-v4-flash-0731"
+    assert provider.model == "openrouter/free"
     assert provider.extra_headers == {
         "HTTP-Referer": "http://127.0.0.1:8000",
         "X-OpenRouter-Title": "AI Tutor",
     }
     assert provider.request_extra == {
-        "reasoning": {"effort": "none"},
         "provider": {
             "sort": "throughput",
             "allow_fallbacks": True,
             "require_parameters": True,
+            "max_price": {"prompt": 0, "completion": 0, "request": 0},
         },
         "plugins": [{"id": "response-healing"}],
     }
     assert provider.timeout_seconds == 25.0
     assert provider.max_retries == 2
+
+
+def test_free_only_mode_allows_an_explicit_free_model(monkeypatch) -> None:
+    settings = SimpleNamespace(
+        ai_provider="openrouter",
+        deepseek_api_key=None,
+        deepseek_base_url="https://api.deepseek.com",
+        deepseek_model="deepseek-v4-flash",
+        deepseek_timeout_seconds=30.0,
+        openrouter_api_key=SecretStr("sk-or-v1-test"),
+        openrouter_base_url="https://openrouter.ai/api/v1",
+        openrouter_model="minimax/minimax-m3:free",
+        openrouter_free_only=True,
+        openrouter_timeout_seconds=25.0,
+        openrouter_max_retries=2,
+        openrouter_site_url="http://127.0.0.1:8000",
+        openrouter_app_name="AI Tutor",
+    )
+    monkeypatch.setattr(provider_module, "get_settings", lambda: settings)
+
+    provider = get_ai_provider()
+
+    assert provider.model == "minimax/minimax-m3:free"
+    assert provider.request_extra["provider"]["max_price"] == {
+        "prompt": 0,
+        "completion": 0,
+        "request": 0,
+    }
 
 
 def test_ai_explains_only_a_section_from_current_lesson(client: TestClient) -> None:

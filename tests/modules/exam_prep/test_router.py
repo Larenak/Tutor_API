@@ -1,13 +1,24 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app.main import app
 from app.modules.exam_prep.catalog import TASKS
 from app.modules.exam_prep.service import _lesson_units, reset_demo_state
+from app.modules.users.dependencies import get_current_admin
+from app.modules.users.models import User, UserRole, UserStatus
 
 
 @pytest.fixture(autouse=True)
 def reset_state() -> None:
     reset_demo_state()
+
+
+def allow_admin_access() -> None:
+    app.dependency_overrides[get_current_admin] = lambda: User(
+        display_name="Admin",
+        role=UserRole.ADMIN,
+        status=UserStatus.ACTIVE,
+    )
 
 
 def complete_current_theory(client: TestClient, session_id: str) -> dict[str, object]:
@@ -1015,6 +1026,7 @@ def test_dashboard_contains_today_schedule_roadmap_score_and_streak(client: Test
 
 
 def test_complex_tasks_and_admin_metrics_are_not_fabricated(client: TestClient) -> None:
+    allow_admin_access()
     tasks = client.get("/api/v1/exam/math-profile/tasks").json()["data"]
     by_number = {task["exam_number"]: task for task in tasks}
     admin = client.get("/api/v1/exam/math-profile/admin/dashboard").json()["data"]
@@ -1032,6 +1044,7 @@ def test_complex_tasks_and_admin_metrics_are_not_fabricated(client: TestClient) 
 
 
 def test_admin_can_unpublish_task_without_deleting_it(client: TestClient) -> None:
+    allow_admin_access()
     response = client.patch(
         "/api/v1/exam/math-profile/admin/tasks/math-01/status",
         json={"published": False},
@@ -1045,10 +1058,19 @@ def test_admin_can_unpublish_task_without_deleting_it(client: TestClient) -> Non
     assert len(admin_tasks) == 19
 
 
+def test_admin_endpoints_require_authentication(client: TestClient) -> None:
+    response = client.get("/api/v1/exam/math-profile/admin/dashboard")
+
+    assert response.status_code == 401
+
+
 def test_website_is_served(client: TestClient) -> None:
     response = client.get("/")
 
     assert response.status_code == 200
     assert "Вектор — подготовка к ЕГЭ" in response.text
+    assert 'id="login-form"' in response.text
+    assert 'id="register-form"' in response.text
+    assert 'id="app-shell"' in response.text
     assert "Домашние задания" in response.text
     assert "Уроки" in response.text

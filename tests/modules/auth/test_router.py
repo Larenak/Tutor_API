@@ -3,8 +3,11 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app.main import app
 from app.modules.auth import router as auth_router
-from app.modules.auth.schemas import TokenRead
+from app.modules.auth.schemas import LogoutRead, TokenRead
+from app.modules.users.dependencies import get_current_user
+from app.modules.users.models import User, UserRole, UserStatus
 
 
 def test_register_returns_tokens_from_auth_service(
@@ -71,3 +74,35 @@ def test_refresh_returns_rotated_tokens_from_auth_service(
     assert response.status_code == 200
     assert response.json()["data"]["refresh_token"] == "new-refresh"
     refresh.assert_awaited_once_with(db, "old-refresh")
+
+
+def test_logout_requires_an_authenticated_user(
+    client: TestClient, monkeypatch
+) -> None:
+    logout = AsyncMock(return_value=LogoutRead())
+    monkeypatch.setattr(auth_router, "logout", logout)
+
+    response = client.post("/api/v1/auth/logout", json={"refresh_token": "refresh"})
+
+    assert response.status_code == 401
+    logout.assert_not_awaited()
+
+
+def test_logout_revokes_the_current_session(
+    client: TestClient, db: AsyncMock, monkeypatch
+) -> None:
+    user = User(
+        id=uuid4(),
+        display_name="Student",
+        role=UserRole.STUDENT,
+        status=UserStatus.ACTIVE,
+    )
+    app.dependency_overrides[get_current_user] = lambda: user
+    logout = AsyncMock(return_value=LogoutRead())
+    monkeypatch.setattr(auth_router, "logout", logout)
+
+    response = client.post("/api/v1/auth/logout", json={"refresh_token": "refresh"})
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {"logged_out": True}
+    logout.assert_awaited_once_with(db, "refresh", user.id)

@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.api.responses import SuccessResponse, success
 from app.modules.exam_prep.schemas import AttemptCreate, TaskStatusUpdate, TheoryCompletionCreate
@@ -19,6 +19,8 @@ from app.modules.exam_prep.service import (
     set_task_status,
     submit_attempt,
 )
+from app.modules.users.dependencies import get_current_admin
+from app.modules.users.models import User
 
 router = APIRouter(prefix="/exam/math-profile", tags=["Profile mathematics prototype"])
 
@@ -102,17 +104,23 @@ async def dashboard(
 
 
 @router.get("/admin/dashboard", response_model=SuccessResponse[dict[str, object]])
-async def admin_dashboard() -> SuccessResponse[dict[str, object]]:
+async def admin_dashboard(
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SuccessResponse[dict[str, object]]:
     return success(get_admin_dashboard())
 
 
 @router.get("/admin/users", response_model=SuccessResponse[list[dict[str, object]]])
-async def admin_users() -> SuccessResponse[list[dict[str, object]]]:
+async def admin_users(
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SuccessResponse[list[dict[str, object]]]:
     return success(get_admin_users())
 
 
 @router.get("/admin/tasks", response_model=SuccessResponse[list[dict[str, object]]])
-async def admin_tasks() -> SuccessResponse[list[dict[str, object]]]:
+async def admin_tasks(
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SuccessResponse[list[dict[str, object]]]:
     return success(list_tasks(include_unpublished=True))
 
 
@@ -120,5 +128,6 @@ async def admin_tasks() -> SuccessResponse[list[dict[str, object]]]:
 async def update_task_status(
     task_id: str,
     payload: TaskStatusUpdate,
+    _: Annotated[User, Depends(get_current_admin)],
 ) -> SuccessResponse[dict[str, object]]:
     return success(set_task_status(task_id, payload.published))

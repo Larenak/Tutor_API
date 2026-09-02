@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -12,7 +14,14 @@ from app.database.session import engine
 settings = get_settings()
 web_dir = Path(__file__).resolve().parent / "web"
 
-app = FastAPI(title=settings.app_name, version="0.2.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    yield
+    await engine.dispose()
+
+
+app = FastAPI(title=settings.app_name, version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -32,8 +41,3 @@ async def website() -> FileResponse:
 @app.get("/health")
 async def health_check() -> dict[str, str]:
     return {"status": "ok"}
-
-
-@app.on_event("shutdown")
-async def dispose_database_engine() -> None:
-    await engine.dispose()

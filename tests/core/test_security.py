@@ -17,6 +17,10 @@ def test_password_hash_is_verifiable_and_does_not_contain_password() -> None:
     assert not verify_password("incorrect password", password_hash)
 
 
+def test_malformed_password_hash_fails_closed() -> None:
+    assert not verify_password("password", "not-a-supported-hash")
+
+
 def test_decode_access_token_returns_token_subject() -> None:
     user_id = uuid4()
     token = create_token(user_id, "access", timedelta(minutes=5))
@@ -31,3 +35,12 @@ def test_decode_access_token_rejects_refresh_token() -> None:
         decode_access_token(token)
 
     assert error.value.status_code == 401
+
+
+def test_tokens_issued_for_the_same_user_are_unique() -> None:
+    user_id = uuid4()
+
+    first = create_token(user_id, "refresh")
+    second = create_token(user_id, "refresh")
+
+    assert first != second

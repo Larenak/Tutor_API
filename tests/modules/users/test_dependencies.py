@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.core.security import create_token
-from app.modules.users.dependencies import get_current_user
+from app.modules.users.dependencies import get_current_admin, get_current_user
 from app.modules.users.models import User, UserRole, UserStatus
 
 
@@ -39,6 +39,21 @@ def test_current_user_dependency_rejects_blocked_user() -> None:
         run(get_current_user(credentials, FakeSession(user)))
 
     assert error.value.status_code == 401
+
+
+def test_current_admin_returns_an_admin_user() -> None:
+    user = User(id=uuid4(), display_name="Admin", role=UserRole.ADMIN, status=UserStatus.ACTIVE)
+
+    assert run(get_current_admin(user)) is user
+
+
+def test_current_admin_rejects_a_student() -> None:
+    user = User(id=uuid4(), display_name="Student", role=UserRole.STUDENT, status=UserStatus.ACTIVE)
+
+    with pytest.raises(HTTPException, match="Administrator access required") as error:
+        run(get_current_admin(user))
+
+    assert error.value.status_code == 403
 
 
 def run(awaitable: Awaitable[object]) -> object:

@@ -59,7 +59,10 @@ async def _generate[GeneratedT: BaseModel](
     except AIProviderNotConfigured as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ИИ ещё не подключён: добавьте DEEPSEEK_API_KEY в локальный .env.",
+            detail=(
+                "ИИ ещё не подключён: добавьте OPENROUTER_API_KEY "
+                "(или совместимый ключ в DEEPSEEK_API_KEY) в локальный .env."
+            ),
         ) from error
     except AIProviderAuthenticationFailed as error:
         provider_label = _provider_label(provider)

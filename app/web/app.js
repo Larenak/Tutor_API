@@ -1,9 +1,30 @@
 const API = "/api/v1/exam/math-profile";
 const AI_API = "/api/v1/ai";
-const sessionId = new URLSearchParams(window.location.search).get("session_id") || "local-student";
+const AUTH_API = "/api/v1/auth";
+const USERS_API = "/api/v1/users";
+const AUTH_STORAGE_KEY = "vector-auth-session";
+
+function readStoredTokens() {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(AUTH_STORAGE_KEY) || "null");
+    if (stored?.access_token && stored?.refresh_token) return stored;
+  } catch {
+    sessionStorage.removeItem(AUTH_STORAGE_KEY);
+  }
+  return null;
+}
+
+const storedTokens = readStoredTokens();
+let sessionId = "";
 
 const state = {
   role: "student",
+  auth: {
+    accessToken: storedTokens?.access_token || null,
+    refreshToken: storedTokens?.refresh_token || null,
+    user: null,
+    refreshPromise: null,
+  },
   page: "dashboard",
   overview: null,
   tasks: [],
@@ -32,13 +53,66 @@ const state = {
 
 const view = document.querySelector("#view");
 
-async function requestFrom(baseUrl, path, options = {}) {
-  const response = await fetch(`${baseUrl}${path}`, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
+function apiErrorMessage(payload) {
+  if (typeof payload.detail === "string") return payload.detail;
+  if (Array.isArray(payload.detail) && payload.detail.length) {
+    return payload.detail[0].msg || "Проверьте введённые данные";
+  }
+  return "Не удалось получить данные";
+}
+
+function persistTokens(tokens) {
+  state.auth.accessToken = tokens.access_token;
+  state.auth.refreshToken = tokens.refresh_token;
+  sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+    access_token: tokens.access_token,
+    refresh_token: tokens.refresh_token,
+  }));
+}
+
+function clearTokens() {
+  state.auth.accessToken = null;
+  state.auth.refreshToken = null;
+  sessionStorage.removeItem(AUTH_STORAGE_KEY);
+}
+
+async function refreshTokens() {
+  if (!state.auth.refreshToken) return false;
+  if (state.auth.refreshPromise) return state.auth.refreshPromise;
+  state.auth.refreshPromise = (async () => {
+    const response = await fetch(`${AUTH_API}/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: state.auth.refreshToken }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) return false;
+    persistTokens(payload.data);
+    return true;
+  })().catch(() => false).finally(() => {
+    state.auth.refreshPromise = null;
   });
+  return state.auth.refreshPromise;
+}
+
+async function requestFrom(baseUrl, path, options = {}) {
+  const { skipAuth = false, retryAuth = true, ...fetchOptions } = options;
+  const headers = { "Content-Type": "application/json", ...(fetchOptions.headers || {}) };
+  if (!skipAuth && state.auth.accessToken) {
+    headers.Authorization = `Bearer ${state.auth.accessToken}`;
+  }
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...fetchOptions,
+    headers,
+  });
+  if (response.status === 401 && !skipAuth && retryAuth) {
+    if (await refreshTokens()) {
+      return requestFrom(baseUrl, path, { ...fetchOptions, retryAuth: false });
+    }
+    endLocalSession("Сессия завершилась. Войдите снова.");
+  }
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.detail || "Не удалось получить данные");
+  if (!response.ok) throw new Error(apiErrorMessage(payload));
   return payload.data;
 }
 
@@ -50,19 +124,30 @@ function aiRequest(path, options = {}) {
   return requestFrom(AI_API, path, options);
 }
 
+function userRequest(path, options = {}) {
+  return requestFrom(USERS_API, path, options);
+}
+
 async function loadData() {
-  const [overview, tasks, theory, analytics, roadmap, lesson, homework, dashboard, admin, adminUsers, adminTasks, aiStatus] =
+  const [overview, tasks, theory, analytics, roadmap, lesson, homework, dashboard, aiStatus] =
     await Promise.all([
       request("/overview"), request("/tasks"), request("/theory"),
       request(`/analytics?session_id=${sessionId}`),
       request(`/roadmap?session_id=${sessionId}`),
       request(`/lesson/current?session_id=${sessionId}`),
       request(`/homework/current?session_id=${sessionId}`),
-      request(`/dashboard?session_id=${sessionId}`), request("/admin/dashboard"),
-      request("/admin/users"), request("/admin/tasks"),
+      request(`/dashboard?session_id=${sessionId}`),
       aiRequest("/status").catch(() => ({ provider: "deepseek", model: "—", configured: false, capabilities: [] })),
     ]);
-  Object.assign(state, { overview, tasks, theory, analytics, roadmap, lesson, homework, dashboard, admin, adminUsers, adminTasks, aiStatus });
+  Object.assign(state, { overview, tasks, theory, analytics, roadmap, lesson, homework, dashboard, aiStatus });
+  if (state.role === "admin") {
+    const [admin, adminUsers, adminTasks] = await Promise.all([
+      request("/admin/dashboard"), request("/admin/users"), request("/admin/tasks"),
+    ]);
+    Object.assign(state, { admin, adminUsers, adminTasks });
+  } else {
+    Object.assign(state, { admin: null, adminUsers: [], adminTasks: [] });
+  }
   state.dashboardSelectedDate ||= dashboard.date;
   state.dashboardCalendarMonth ||= `${dashboard.date.slice(0, 7)}-01`;
 }
@@ -901,14 +986,19 @@ function renderHomework() {
 }
 
 async function refreshLearningData() {
-  const [analytics, roadmap, lesson, homework, dashboard, admin, adminUsers] = await Promise.all([
+  const [analytics, roadmap, lesson, homework, dashboard] = await Promise.all([
     request(`/analytics?session_id=${sessionId}`), request(`/roadmap?session_id=${sessionId}`),
     request(`/lesson/current?session_id=${sessionId}`),
     request(`/homework/current?session_id=${sessionId}`),
     request(`/dashboard?session_id=${sessionId}`),
-    request("/admin/dashboard"), request("/admin/users"),
   ]);
-  Object.assign(state, { analytics, roadmap, lesson, homework, dashboard, admin, adminUsers });
+  Object.assign(state, { analytics, roadmap, lesson, homework, dashboard });
+  if (state.role === "admin") {
+    const [admin, adminUsers] = await Promise.all([
+      request("/admin/dashboard"), request("/admin/users"),
+    ]);
+    Object.assign(state, { admin, adminUsers });
+  }
   updateHomeworkBadge();
 }
 
@@ -1110,11 +1200,16 @@ async function submitAnswer(event) {
     document.querySelector("#feedback-slot").innerHTML = `<div class="feedback ${result.is_correct ? "correct" : "incorrect"}">
       <b>${result.is_correct ? "Верно — балл ваш" : `Пока не так. Ответ: ${result.correct_answer}`}</b>
       ${result.explanation}<br><span style="opacity:.78">${result.recommendation}</span></div>`;
-    const [analytics, roadmap, admin, adminUsers] = await Promise.all([
+    const [analytics, roadmap] = await Promise.all([
       request(`/analytics?session_id=${sessionId}`), request(`/roadmap?session_id=${sessionId}`),
-      request("/admin/dashboard"), request("/admin/users"),
     ]);
-    Object.assign(state, { analytics, roadmap, admin, adminUsers });
+    Object.assign(state, { analytics, roadmap });
+    if (state.role === "admin") {
+      const [admin, adminUsers] = await Promise.all([
+        request("/admin/dashboard"), request("/admin/users"),
+      ]);
+      Object.assign(state, { admin, adminUsers });
+    }
   } catch (error) {
     toast(error.message);
   } finally {
@@ -1278,6 +1373,7 @@ function setActiveNav() {
 
 function goTo(page) {
   if (page === "practice" || page === "theory") page = "lessons";
+  if (page === "admin" && state.role !== "admin") page = "dashboard";
   state.page = page;
   window.location.hash = page === "dashboard" ? "" : page;
   setActiveNav();
@@ -1294,29 +1390,250 @@ function render() {
   (pages[state.page] || renderDashboard)();
 }
 
-function toggleRole() {
-  state.role = state.role === "student" ? "admin" : "student";
+function resetPrivateState() {
+  Object.assign(state, {
+    role: "student",
+    page: "dashboard",
+    analytics: null,
+    roadmap: null,
+    lesson: null,
+    homework: null,
+    dashboard: null,
+    admin: null,
+    adminUsers: [],
+    adminTasks: [],
+    currentTask: 0,
+    practiceFilter: "all",
+    focusTheory: null,
+    lessonView: null,
+    lessonTheoryPage: 0,
+    lessonTheoryUnitId: null,
+    aiTheoryAnswers: {},
+    aiTheoryChecks: {},
+    aiHints: {},
+    dashboardSelectedDate: null,
+    dashboardCalendarMonth: null,
+  });
+}
+
+function setAuthStatus(message = "") {
+  document.querySelector("#auth-status").textContent = message;
+}
+
+function authErrorMessage(message) {
+  const translations = {
+    "Invalid email or password": "Неверная почта или пароль.",
+    "Email already exists": "Аккаунт с этой почтой уже существует.",
+    "Display name already exists": "Это имя уже занято.",
+    "Account already exists": "Такой аккаунт уже существует.",
+  };
+  if (translations[message]) return translations[message];
+  if (message.includes("email address")) return "Проверьте адрес электронной почты.";
+  if (message.includes("at least 8 characters")) return "Пароль должен содержать не менее 8 символов.";
+  return message;
+}
+
+function setAuthMode(mode, focus = false) {
+  const isLogin = mode === "login";
+  const loginTab = document.querySelector("#login-tab");
+  const registerTab = document.querySelector("#register-tab");
+  loginTab.classList.toggle("active", isLogin);
+  registerTab.classList.toggle("active", !isLogin);
+  loginTab.setAttribute("aria-selected", String(isLogin));
+  registerTab.setAttribute("aria-selected", String(!isLogin));
+  document.querySelector("#login-form").classList.toggle("hidden", !isLogin);
+  document.querySelector("#register-form").classList.toggle("hidden", isLogin);
+  setAuthStatus();
+  if (focus) document.querySelector(isLogin ? "#login-email" : "#register-name").focus();
+}
+
+function showAuth(message = "") {
+  document.querySelector("#auth-shell").classList.remove("hidden");
+  document.querySelector("#app-shell").classList.add("hidden");
+  setAuthStatus(message);
+}
+
+function showApplication() {
+  document.querySelector("#auth-shell").classList.add("hidden");
+  document.querySelector("#app-shell").classList.remove("hidden");
+}
+
+function accountInitials(name) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return parts.slice(0, 2).map((part) => part[0]).join("").toLocaleUpperCase("ru-RU") || "УЧ";
+}
+
+function updateAccountUI() {
+  const user = state.auth.user;
   const isAdmin = state.role === "admin";
+  const roleLabel = isAdmin ? "Администратор" : "Ученик";
   document.querySelectorAll(".admin-only").forEach((item) => item.classList.toggle("hidden", !isAdmin));
-  document.querySelector("#role-name").textContent = isAdmin ? "Администратор" : "Ученик";
-  document.querySelector("#role-label").textContent = isAdmin ? "Режим управления" : "Текущая сессия";
-  document.querySelector(".avatar").textContent = isAdmin ? "АД" : "УЧ";
-  goTo(isAdmin ? "admin" : "dashboard");
-  toast(isAdmin ? "Включён интерфейс администратора" : "Возвращаемся в кабинет ученика");
+  document.querySelector("#role-name").textContent = user.display_name;
+  document.querySelector("#role-label").textContent = roleLabel;
+  document.querySelector(".avatar").textContent = accountInitials(user.display_name);
+  document.querySelector("#account-menu-name").textContent = user.display_name;
+  document.querySelector("#account-menu-role").textContent = roleLabel;
+}
+
+function toggleAccountMenu(force) {
+  const menu = document.querySelector("#account-menu");
+  const shouldOpen = force ?? menu.classList.contains("hidden");
+  menu.classList.toggle("hidden", !shouldOpen);
+  document.querySelector("#role-switch").setAttribute("aria-expanded", String(shouldOpen));
+}
+
+function endLocalSession(message = "") {
+  clearTokens();
+  state.auth.user = null;
+  sessionId = "";
+  resetPrivateState();
+  toggleAccountMenu(false);
+  setAuthMode("login");
+  showAuth(message);
+}
+
+async function initializeLearningView() {
+  view.innerHTML = `<div class="loading-state"><span class="loader"></span><p>Собираем ваш учебный план…</p></div>`;
+  try {
+    await loadData();
+    updateHomeworkBadge();
+    const hash = window.location.hash.slice(1);
+    const allowedPages = ["roadmap", "lessons", "homework", "analytics"];
+    if (state.role === "admin") allowedPages.push("admin");
+    if (allowedPages.includes(hash)) goTo(hash);
+    else if (hash.startsWith("practice-") || hash.startsWith("theory-")) goTo("lessons");
+    else {
+      setActiveNav();
+      render();
+    }
+  } catch (error) {
+    view.innerHTML = `<div class="error-card"><h2>Сайт запущен, но API не ответил</h2><p>${escapeHtml(error.message)}</p><button class="secondary-button" onclick="location.reload()">Повторить</button></div>`;
+  }
+}
+
+async function activateAuthenticatedSession(tokens = null) {
+  if (tokens) persistTokens(tokens);
+  const user = await userRequest("/me");
+  resetPrivateState();
+  state.auth.user = user;
+  state.role = user.role;
+  sessionId = String(user.id);
+  updateAccountUI();
+  showApplication();
+  await initializeLearningView();
+}
+
+async function submitLogin(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button[type='submit']");
+  const data = new FormData(form);
+  button.disabled = true;
+  button.textContent = "Входим…";
+  setAuthStatus();
+  try {
+    const tokens = await requestFrom(AUTH_API, "/login", {
+      method: "POST",
+      skipAuth: true,
+      retryAuth: false,
+      body: JSON.stringify({
+        email: String(data.get("email")).trim(),
+        password: String(data.get("password")),
+      }),
+    });
+    await activateAuthenticatedSession(tokens);
+    form.reset();
+  } catch (error) {
+    showAuth(authErrorMessage(error.message));
+  } finally {
+    button.disabled = false;
+    button.textContent = "Войти";
+  }
+}
+
+async function submitRegistration(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button[type='submit']");
+  const data = new FormData(form);
+  const password = String(data.get("password"));
+  if (password !== String(data.get("password_confirmation"))) {
+    setAuthStatus("Пароли не совпадают.");
+    return;
+  }
+  button.disabled = true;
+  button.textContent = "Создаём аккаунт…";
+  setAuthStatus();
+  try {
+    const tokens = await requestFrom(AUTH_API, "/register", {
+      method: "POST",
+      skipAuth: true,
+      retryAuth: false,
+      body: JSON.stringify({
+        display_name: String(data.get("display_name")).trim(),
+        email: String(data.get("email")).trim(),
+        password,
+      }),
+    });
+    await activateAuthenticatedSession(tokens);
+    form.reset();
+  } catch (error) {
+    showAuth(authErrorMessage(error.message));
+  } finally {
+    button.disabled = false;
+    button.textContent = "Создать аккаунт";
+  }
+}
+
+async function logoutCurrentUser() {
+  const refreshToken = state.auth.refreshToken;
+  const button = document.querySelector("#logout-button");
+  button.disabled = true;
+  button.textContent = "Выходим…";
+  try {
+    if (refreshToken && state.auth.accessToken) {
+      await requestFrom(AUTH_API, "/logout", {
+        method: "POST",
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+    }
+  } catch {
+    // Локальная сессия всё равно должна быть очищена.
+  } finally {
+    button.disabled = false;
+    button.textContent = "Выйти из аккаунта";
+    endLocalSession("Вы вышли из аккаунта.");
+  }
+}
+
+async function restoreSession() {
+  if (!state.auth.accessToken || !state.auth.refreshToken) {
+    showAuth();
+    return;
+  }
+  try {
+    await activateAuthenticatedSession();
+  } catch {
+    endLocalSession("Сессия завершилась. Войдите снова.");
+  }
 }
 
 document.querySelectorAll(".nav-item").forEach((item) => item.addEventListener("click", () => goTo(item.dataset.page)));
-document.querySelector("#role-switch").addEventListener("click", toggleRole);
-
-loadData().then(() => {
-  updateHomeworkBadge();
-  const hash = window.location.hash.slice(1);
-  if (["roadmap", "lessons", "homework", "analytics", "admin"].includes(hash)) goTo(hash);
-  else if (hash.startsWith("practice-") || hash.startsWith("theory-")) goTo("lessons");
-  else {
-    setActiveNav();
-    render();
-  }
-}).catch((error) => {
-  view.innerHTML = `<div class="error-card"><h2>Сайт запущен, но API не ответил</h2><p>${escapeHtml(error.message)}</p><button class="secondary-button" onclick="location.reload()">Повторить</button></div>`;
+document.querySelector("#login-tab").addEventListener("click", () => setAuthMode("login", true));
+document.querySelector("#register-tab").addEventListener("click", () => setAuthMode("register", true));
+document.querySelector("#login-form").addEventListener("submit", submitLogin);
+document.querySelector("#register-form").addEventListener("submit", submitRegistration);
+document.querySelector("#role-switch").addEventListener("click", () => toggleAccountMenu());
+document.querySelector("#logout-button").addEventListener("click", logoutCurrentUser);
+document.addEventListener("click", (event) => {
+  const actions = document.querySelector(".topbar-actions");
+  if (!actions.contains(event.target)) toggleAccountMenu(false);
 });
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    toggleAccountMenu(false);
+    document.querySelector("#role-switch")?.focus();
+  }
+});
+
+restoreSession();

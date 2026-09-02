@@ -11,7 +11,8 @@ from pydantic import SecretStr
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
-_RETRYABLE_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
+_RETRYABLE_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504, 524, 529}
+_OPENROUTER_FREE_MODEL = "openrouter/free"
 
 
 class AIProviderNotConfigured(RuntimeError):
@@ -23,15 +24,15 @@ class AIProviderRequestFailed(RuntimeError):
 
 
 class AIProviderAuthenticationFailed(AIProviderRequestFailed):
-    """Raised when DeepSeek rejects the configured API key."""
+    """Raised when the remote provider rejects the configured API key."""
 
 
 class AIProviderBalanceExhausted(AIProviderRequestFailed):
-    """Raised when the DeepSeek account has insufficient balance."""
+    """Raised when the remote provider account has insufficient balance."""
 
 
 class AIProviderRateLimited(AIProviderRequestFailed):
-    """Raised when DeepSeek rate-limits the request."""
+    """Raised when the remote provider rate-limits the request."""
 
 
 class AIProvider(Protocol):
@@ -52,6 +53,10 @@ class AIProvider(Protocol):
     ) -> dict[str, Any]: ...
 
 
+def _is_free_openrouter_model(model: str) -> bool:
+    return model == _OPENROUTER_FREE_MODEL or model.endswith(":free")
+
+
 def _parse_json_content(content: str) -> dict[str, Any]:
     value = content.strip()
     if value.startswith("```"):
@@ -64,10 +69,50 @@ def _parse_json_content(content: str) -> dict[str, Any]:
     try:
         parsed = json.loads(value)
     except json.JSONDecodeError as error:
+        decoder = json.JSONDecoder()
+        for start, character in enumerate(value):
+            if character != "{":
+                continue
+            try:
+                candidate, _ = decoder.raw_decode(value[start:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict):
+                return candidate
         raise AIProviderRequestFailed("AI provider returned invalid JSON") from error
     if not isinstance(parsed, dict):
         raise AIProviderRequestFailed("AI provider returned an unexpected response shape")
     return parsed
+
+
+def _is_retryable_http_response(
+    response: httpx.Response,
+    *,
+    provider_name: str,
+    model: str,
+) -> bool:
+    if response.status_code in _RETRYABLE_STATUS_CODES:
+        return True
+    if (
+        provider_name != "openrouter"
+        or model != _OPENROUTER_FREE_MODEL
+        or response.status_code != 404
+    ):
+        return False
+    try:
+        error = response.json().get("error", {})
+        metadata = error.get("metadata", {})
+        previous_errors = metadata.get("previous_errors", [])
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return error.get("message") in {
+        "Provider returned error",
+        "No allowed providers are available for the selected model",
+    } or any(
+        isinstance(previous_error, dict)
+        and previous_error.get("code") in _RETRYABLE_STATUS_CODES
+        for previous_error in previous_errors
+    )
 
 
 @dataclass(slots=True)
@@ -97,10 +142,25 @@ class DeepSeekProvider:
         schema_name: str = "ai_response",
     ) -> dict[str, Any]:
         if not self.configured or self.api_key is None:
-            raise AIProviderNotConfigured("DeepSeek API key is not configured")
+            raise AIProviderNotConfigured(
+                f"{self.provider_name} API key is not configured"
+            )
 
+        free_model_schema = (
+            self.provider_name == "openrouter"
+            and _is_free_openrouter_model(self.model)
+            and json_schema is not None
+        )
+        effective_max_tokens = min(max_tokens * 2, 1600) if free_model_schema else max_tokens
+        effective_system_prompt = system_prompt
+        if free_model_schema:
+            effective_system_prompt = (
+                f"{system_prompt}\n\n"
+                "В сообщении пользователя передано поле output_schema. Верни один JSON-объект "
+                "точно по этой схеме и обязательно заполни каждое поле из required."
+            )
         response_format: dict[str, object] = {"type": "json_object"}
-        if self.provider_name == "openrouter" and json_schema:
+        if self.provider_name == "openrouter" and json_schema and not free_model_schema:
             response_format = {
                 "type": "json_schema",
                 "json_schema": {
@@ -109,18 +169,24 @@ class DeepSeekProvider:
                     "schema": json_schema,
                 },
             }
+        serialized_payload: dict[str, object] = user_payload
+        if free_model_schema:
+            serialized_payload = {
+                "input": user_payload,
+                "output_schema": json_schema,
+            }
         request_body: dict[str, object] = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": effective_system_prompt},
                 {
                     "role": "user",
-                    "content": json.dumps(user_payload, ensure_ascii=False),
+                    "content": json.dumps(serialized_payload, ensure_ascii=False),
                 },
             ],
             "response_format": response_format,
             "stream": False,
-            "max_tokens": max_tokens,
+            "max_tokens": effective_max_tokens,
         }
         if self.request_extra:
             request_body.update(self.request_extra)
@@ -164,7 +230,13 @@ class DeepSeekProvider:
                     raise AIProviderRequestFailed(
                         f"{self.provider_name} API returned an empty response"
                     )
-                return _parse_json_content(content)
+                parsed_content = _parse_json_content(content)
+                required_fields = json_schema.get("required", []) if json_schema else []
+                if any(field not in parsed_content for field in required_fields):
+                    raise AIProviderRequestFailed(
+                        f"{self.provider_name} API returned incomplete JSON"
+                    )
+                return parsed_content
             except httpx.HTTPStatusError as error:
                 source_error = error
                 status_code = error.response.status_code
@@ -185,7 +257,11 @@ class DeepSeekProvider:
                     mapped_error = AIProviderRequestFailed(
                         f"{self.provider_name} API request failed with {status_code}"
                     )
-                    retryable = status_code in _RETRYABLE_STATUS_CODES
+                    retryable = _is_retryable_http_response(
+                        error.response,
+                        provider_name=self.provider_name,
+                        model=self.model,
+                    )
             except httpx.TimeoutException as error:
                 source_error = error
                 mapped_error = AIProviderRequestFailed(
@@ -235,25 +311,43 @@ def get_ai_provider() -> AIProvider:
         or deepseek_key_value.startswith("sk-or-")
     )
     if use_openrouter:
+        free_only = settings.openrouter_free_only
+        requested_model = settings.openrouter_model.strip()
+        model = (
+            requested_model
+            if free_only and _is_free_openrouter_model(requested_model)
+            else _OPENROUTER_FREE_MODEL
+            if free_only
+            else requested_model
+        )
+        provider_preferences: dict[str, object] = {
+            "sort": "throughput",
+            "allow_fallbacks": True,
+            "require_parameters": True,
+        }
+        if free_only:
+            provider_preferences["max_price"] = {
+                "prompt": 0,
+                "completion": 0,
+                "request": 0,
+            }
+        request_extra: dict[str, object] = {
+            "provider": provider_preferences,
+            "plugins": [{"id": "response-healing"}],
+        }
+        if not free_only:
+            request_extra["reasoning"] = {"effort": "none"}
         return DeepSeekProvider(
             api_key=openrouter_key or deepseek_key,
             base_url=settings.openrouter_base_url,
-            model=settings.openrouter_model,
+            model=model,
             timeout_seconds=settings.openrouter_timeout_seconds,
             provider_name="openrouter",
             extra_headers={
                 "HTTP-Referer": settings.openrouter_site_url,
                 "X-OpenRouter-Title": settings.openrouter_app_name,
             },
-            request_extra={
-                "reasoning": {"effort": "none"},
-                "provider": {
-                    "sort": "throughput",
-                    "allow_fallbacks": True,
-                    "require_parameters": True,
-                },
-                "plugins": [{"id": "response-healing"}],
-            },
+            request_extra=request_extra,
             max_retries=settings.openrouter_max_retries,
         )
     if provider_name != "deepseek":

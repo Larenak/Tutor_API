@@ -5,10 +5,63 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Прототип персональной подготовки к ЕГЭ по профильной математике">
   <title>Вектор — подготовка к ЕГЭ</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=ai-self-check-1">
+  <link rel="stylesheet" href="/assets/styles.css?v=auth-flow-1">
 </head>
 <body>
-  <div class="app-shell">
+  <section class="auth-shell" id="auth-shell" aria-labelledby="auth-title">
+    <div class="auth-layout">
+      <div class="auth-intro">
+        <div class="brand auth-brand" aria-label="Вектор">вектор</div>
+        <p class="eyebrow">Подготовка к ЕГЭ</p>
+        <h1 id="auth-title">Ваш маршрут по профильной математике</h1>
+        <p>Войдите, чтобы продолжить с того же урока, или создайте аккаунт — диагностика и учебный план будут привязаны к нему.</p>
+        <ul>
+          <li><span>01</span> Сначала диагностика</li>
+          <li><span>02</span> Затем теория и практика</li>
+          <li><span>03</span> Домашняя работа отдельно</li>
+        </ul>
+      </div>
+
+      <div class="auth-card">
+        <div class="auth-tabs" role="tablist" aria-label="Вход или регистрация">
+          <button class="auth-tab active" id="login-tab" type="button" role="tab" aria-selected="true" aria-controls="login-form">Вход</button>
+          <button class="auth-tab" id="register-tab" type="button" role="tab" aria-selected="false" aria-controls="register-form">Регистрация</button>
+        </div>
+
+        <form class="auth-form" id="login-form" aria-labelledby="login-tab">
+          <div>
+            <h2>С возвращением</h2>
+            <p>Введите данные своего аккаунта.</p>
+          </div>
+          <label for="login-email">Электронная почта</label>
+          <input id="login-email" name="email" type="email" autocomplete="email" placeholder="student@example.ru" required>
+          <label for="login-password">Пароль</label>
+          <input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="Введите пароль" required>
+          <button class="primary-button auth-submit" type="submit">Войти</button>
+        </form>
+
+        <form class="auth-form hidden" id="register-form" aria-labelledby="register-tab">
+          <div>
+            <h2>Создайте аккаунт</h2>
+            <p>Прогресс будет сохраняться отдельно для вас.</p>
+          </div>
+          <label for="register-name">Имя</label>
+          <input id="register-name" name="display_name" type="text" autocomplete="name" minlength="1" maxlength="120" placeholder="Как к вам обращаться" required>
+          <label for="register-email">Электронная почта</label>
+          <input id="register-email" name="email" type="email" autocomplete="email" placeholder="student@example.ru" required>
+          <label for="register-password">Пароль</label>
+          <input id="register-password" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="Не менее 8 символов" required>
+          <label for="register-password-confirmation">Повторите пароль</label>
+          <input id="register-password-confirmation" name="password_confirmation" type="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="Ещё раз тот же пароль" required>
+          <button class="primary-button auth-submit" type="submit">Создать аккаунт</button>
+        </form>
+
+        <p class="auth-status" id="auth-status" role="alert" aria-live="assertive"></p>
+      </div>
+    </div>
+  </section>
+
+  <div class="app-shell hidden" id="app-shell">
     <header class="site-header">
       <div class="topbar">
         <div class="topbar-main">
@@ -17,10 +70,14 @@
           </div>
 
           <div class="topbar-actions">
-            <button class="role-switch" id="role-switch" type="button" aria-label="Сменить роль">
+            <button class="role-switch" id="role-switch" type="button" aria-label="Открыть меню аккаунта" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu">
               <span class="avatar">УЧ</span>
-              <span><b id="role-name">Ученик</b><small id="role-label">Текущая сессия</small></span>
+              <span><b id="role-name">Ученик</b><small id="role-label">Личный кабинет</small></span>
             </button>
+            <div class="account-menu hidden" id="account-menu" role="menu">
+              <div><b id="account-menu-name">Ученик</b><small id="account-menu-role">Личный кабинет</small></div>
+              <button id="logout-button" type="button" role="menuitem">Выйти из аккаунта</button>
+            </div>
           </div>
         </div>
 
@@ -46,6 +103,6 @@
   </div>
 
   <div class="toast-region" id="toast-region" aria-live="polite"></div>
-  <script src="/assets/app.js?v=ai-self-check-1" defer></script>
+  <script src="/assets/app.js?v=auth-flow-1" defer></script>
 </body>
 </html>

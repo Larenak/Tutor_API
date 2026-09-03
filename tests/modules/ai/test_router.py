@@ -13,6 +13,7 @@ from app.modules.ai.provider import (
     DeepSeekProvider,
     get_ai_provider,
 )
+from app.modules.exam_prep.service import _lesson_units
 
 
 class StubAIProvider:
@@ -79,6 +80,41 @@ def _complete_theory(client: TestClient, session_id: str, lesson: dict[str, obje
     assert response.status_code == 200
 
 
+def _reach_failed_assessment(client: TestClient, session_id: str) -> dict[str, object]:
+    lesson = _current_lesson(client, session_id)
+    _complete_theory(client, session_id, lesson)
+    unit = next(item for item in _lesson_units() if item["id"] == lesson["unit_id"])
+    for internal_task in unit["practice_tasks"]:
+        current = _current_lesson(client, session_id)
+        response = client.post(
+            "/api/v1/exam/math-profile/attempts",
+            json={
+                "session_id": session_id,
+                "task_id": current["practice_task"]["id"],
+                "answer": internal_task["answer_aliases"][0],
+                "mode": "practice",
+                "lesson_unit_id": lesson["unit_id"],
+                "lesson_task_key": current["practice_task"]["lesson_task_key"],
+            },
+        )
+        assert response.status_code == 200
+    for _ in range(5):
+        current = _current_lesson(client, session_id)
+        response = client.post(
+            "/api/v1/exam/math-profile/attempts",
+            json={
+                "session_id": session_id,
+                "task_id": current["assessment_task"]["id"],
+                "answer": "wrong",
+                "mode": "assessment",
+                "lesson_unit_id": lesson["unit_id"],
+                "lesson_task_key": current["assessment_task"]["lesson_task_key"],
+            },
+        )
+        assert response.status_code == 200
+    return _current_lesson(client, session_id)
+
+
 def test_ai_status_reports_provider_without_exposing_key(client: TestClient) -> None:
     provider = StubAIProvider({})
     app.dependency_overrides[get_ai_provider] = lambda: provider
@@ -90,7 +126,12 @@ def test_ai_status_reports_provider_without_exposing_key(client: TestClient) -> 
         "provider": "deepseek",
         "model": "deepseek-test",
         "configured": True,
-        "capabilities": ["theory_explanation", "task_hints", "error_analysis"],
+        "capabilities": [
+            "theory_explanation",
+            "task_hints",
+            "error_analysis",
+            "assessment_analysis",
+        ],
     }
     assert "key" not in response.text.lower()
 
@@ -297,6 +338,45 @@ def test_ai_analyzes_only_a_saved_incorrect_attempt(client: TestClient) -> None:
     assert context["student_attempt"]["answer"] == "999"
     assert context["verified_solution"]
     assert "short answer" in context["evidence_limit"]
+
+
+def test_ai_analyzes_failed_assessment_without_changing_remediation(
+    client: TestClient,
+) -> None:
+    session_id = "ai-assessment-student"
+    lesson = _reach_failed_assessment(client, session_id)
+    assert lesson["current_step"] == "remediation"
+    provider = StubAIProvider(
+        {
+            "diagnosis": "Ошибки распределены по четырём подтемам векторов.",
+            "evidence": ["В контрольной пять неверных коротких ответов."],
+            "focus_order": ["Сначала длина", "Затем координаты"],
+            "study_plan": [
+                "Повторить формулу перед первым заданием.",
+                "Решить весь назначенный набор по порядку.",
+            ],
+            "encouragement": "После отработки откроется новая попытка.",
+            "confidence_note": "Без записи решения точный неверный шаг неизвестен.",
+        }
+    )
+    app.dependency_overrides[get_ai_provider] = lambda: provider
+
+    response = client.post(
+        "/api/v1/ai/analyze-assessment",
+        json={"session_id": session_id, "lesson_unit_id": lesson["unit_id"]},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["type"] == "assessment_analysis"
+    assert data["score_percent"] == 0
+    assert data["cycle"] == 1
+    context = provider.calls[0]["user_payload"]["context"]
+    assert len(context["wrong_attempts"]) == 5
+    assert sum(item["errors"] for item in context["weak_subtopics"]) == 5
+    assert sum(item["assigned_tasks"] for item in context["weak_subtopics"]) == 10
+    assert provider.calls[0]["schema_name"] == "AssessmentAnalysisGenerated"
+    assert "не меняй их" in provider.calls[0]["system_prompt"]
 
 
 def test_ai_request_without_key_returns_safe_service_message(client: TestClient) -> None:

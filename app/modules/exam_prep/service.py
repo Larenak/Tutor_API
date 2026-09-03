@@ -13,6 +13,10 @@ _attempts: dict[str, list[dict[str, object]]] = {}
 _theory_completions: dict[str, set[str]] = {}
 _published: dict[str, bool] = {str(task["id"]): True for task in TASKS}
 
+ASSESSMENT_PASS_PERCENT = 60
+ASSESSMENT_TASKS_PER_CYCLE = 5
+REMEDIATION_TASKS_PER_ERROR = 2
+
 # Official EGE-2026 profile mathematics scale: primary score (tuple index)
 # to test/secondary score. The conversion is intentionally table-based because
 # the official scale is nonlinear.
@@ -1317,6 +1321,379 @@ def _homework_tasks(unit_id: str, tasks: list[dict[str, object]]) -> list[dict[s
     return [homework_task]
 
 
+def _assessment_source(unit_id: str, number: int) -> dict[str, object]:
+    return {
+        "label": "Учебный аналог по структуре ЕГЭ-2026",
+        "url": EXAM["sources"][0]["url"],
+        "source_id": f"assessment-{unit_id.replace(':', '-')}-{number}",
+        "attribution": "Составлено для контрольной AI Tutor",
+        "adapted": True,
+        "verbatim": False,
+    }
+
+
+def _generated_assessment_tasks(unit: dict[str, object]) -> list[dict[str, object]]:
+    """Provide a fresh deterministic control bank for the smaller course units."""
+    unit_id = str(unit["id"])
+    specs: list[tuple[int, str, str, str]] = []
+
+    if unit_id == "probability-models:applied":
+        discounts = [
+            (10, 18000),
+            (20, 24000),
+            (25, 30000),
+            (30, 35000),
+            (40, 36000),
+            (50, 27000),
+            (15, 34000),
+            (35, 39000),
+        ]
+        for rate, final_price in discounts:
+            original = final_price * 100 // (100 - rate)
+            specs.append(
+                (
+                    1,
+                    f"После скидки {rate}% товар стоит {final_price:,} рублей. Найдите цену до скидки.".replace(
+                        ",", " "
+                    ),
+                    str(original),
+                    f"Цена после скидки составляет {100 - rate}% исходной: {final_price} · 100 / {100 - rate} = {original}.",
+                )
+            )
+        for speed, minutes in [
+            (60, 48),
+            (72, 50),
+            (80, 45),
+            (90, 40),
+            (96, 35),
+            (100, 54),
+            (120, 42),
+        ]:
+            distance = speed * minutes // 60
+            specs.append(
+                (
+                    0,
+                    f"Автомобиль едет со скоростью {speed} км/ч. За сколько минут он проедет {distance} км?",
+                    str(minutes),
+                    f"t = {distance} / {speed} ч = {minutes} мин.",
+                )
+            )
+    elif unit_id == "short-algebra:equations":
+        for base, power, shift in [
+            (2, 9, 2),
+            (3, 5, 1),
+            (5, 4, -1),
+            (2, 7, -2),
+            (4, 5, 3),
+            (7, 3, 1),
+            (3, 6, -2),
+            (5, 3, 2),
+            (2, 10, 4),
+            (6, 4, 1),
+            (3, 7, 3),
+            (8, 3, -1),
+            (10, 5, 2),
+            (4, 6, -2),
+            (9, 3, 1),
+        ]:
+            answer = power - shift
+            sign = f"+ {shift}" if shift >= 0 else f"− {abs(shift)}"
+            specs.append(
+                (
+                    0,
+                    f"Решите уравнение {base}^(x {sign}) = {base}^{power}.",
+                    str(answer),
+                    f"Основания равны, поэтому x {sign} = {power}; x = {answer}.",
+                )
+            )
+    elif unit_id == "short-algebra:number_theory":
+        for base, argument, power in [
+            (5, 2, 6),
+            (7, 3, 4),
+            (2, 5, 3),
+            (11, 2, 5),
+            (3, 4, 4),
+            (6, 5, 2),
+            (8, 3, 5),
+            (9, 2, 4),
+            (4, 7, 3),
+            (10, 3, 4),
+            (12, 2, 6),
+            (5, 4, 3),
+            (7, 2, 7),
+            (3, 5, 5),
+            (2, 3, 8),
+        ]:
+            specs.append(
+                (
+                    0,
+                    f"Найдите значение выражения log₍{base}₎({argument}^{power}) / log₍{base}₎({argument}).",
+                    str(power),
+                    f"По формуле перехода к новому основанию выражение равно log₍{argument}₎({argument}^{power}) = {power}.",
+                )
+            )
+    elif unit_id == "short-algebra:calculus":
+        for coefficient, power, point in [
+            (2, 2, 3),
+            (3, 2, 2),
+            (1, 3, 2),
+            (2, 3, 1),
+            (4, 2, -2),
+            (5, 2, 3),
+            (3, 3, -1),
+            (1, 4, 2),
+        ]:
+            answer = coefficient * power * point ** (power - 1)
+            specs.append(
+                (
+                    0,
+                    f"Для функции f(x) = {coefficient}x^{power} найдите f'({point}).",
+                    str(answer),
+                    f"f'(x) = {coefficient * power}x^{power - 1}; f'({point}) = {answer}.",
+                )
+            )
+        for maximum, constant in [
+            (-4, 3),
+            (-2, -1),
+            (1, 4),
+            (3, -2),
+            (5, 1),
+            (8, 9),
+            (10, 6),
+        ]:
+            coefficient = 2 * maximum
+            sign = f"+ {coefficient}x" if coefficient >= 0 else f"− {abs(coefficient)}x"
+            specs.append(
+                (
+                    1,
+                    f"Найдите абсциссу точки максимума функции y = −x² {sign} + {constant}.",
+                    str(maximum),
+                    f"Вершина параболы имеет абсциссу x = −b/(2a) = {maximum}.",
+                )
+            )
+    elif unit_id == "short-algebra:functions":
+        for base, argument in [
+            (2, 5),
+            (3, 3),
+            (4, 2),
+            (5, 3),
+            (6, 2),
+            (7, 2),
+            (8, 2),
+            (9, 2),
+            (10, 3),
+            (2, 7),
+            (3, 4),
+            (4, 3),
+            (5, 2),
+            (11, 2),
+            (12, 2),
+        ]:
+            answer = base**argument
+            specs.append(
+                (
+                    0,
+                    f"Функция задана формулой f(x) = {base}^x. Найдите f({argument}).",
+                    str(answer),
+                    f"Подставляем x = {argument}: f({argument}) = {base}^{argument} = {answer}.",
+                )
+            )
+    elif unit_id == "extended-core:equations":
+        trig = [
+            ("sin x = 0", 3),
+            ("cos x = 0", 2),
+            ("sin x = 1", 1),
+            ("cos x = 1", 2),
+            ("sin x = −1", 1),
+            ("cos x = −1", 1),
+            ("2sin x = 1", 2),
+            ("2cos x = 1", 2),
+        ]
+        for equation, roots in trig:
+            specs.append(
+                (
+                    0,
+                    f"Решите {equation} и укажите количество корней на [0; 2π].",
+                    str(roots),
+                    f"На отрезке [0; 2π] уравнение имеет {roots} корн.",
+                )
+            )
+        for base, power in [(2, 4), (3, 3), (5, 2), (4, 3), (2, 6), (10, 2), (3, 4)]:
+            answer = base**power
+            specs.append(
+                (
+                    1,
+                    f"Решите log₍{base}₎(x) ≥ {power}. Укажите наименьшее целое решение.",
+                    str(answer),
+                    f"Так как основание больше 1, x ≥ {base}^{power} = {answer}.",
+                )
+            )
+    elif unit_id == "extended-core:applied":
+        for start, rate in [
+            (200000, 10),
+            (300000, 12),
+            (400000, 15),
+            (250000, 20),
+            (600000, 8),
+            (800000, 25),
+            (150000, 30),
+            (500000, 18),
+            (700000, 5),
+            (900000, 10),
+            (120000, 25),
+            (360000, 15),
+            (480000, 20),
+            (750000, 12),
+            (1000000, 7),
+        ]:
+            final = start * (100 + rate) // 100
+            specs.append(
+                (
+                    0,
+                    f"Вклад вырос за год с {start:,} до {final:,} рублей. Какой процент начислил банк?".replace(
+                        ",", " "
+                    ),
+                    str(rate),
+                    f"Прирост равен {final - start}; ({final - start}) / {start} · 100% = {rate}%.",
+                )
+            )
+    elif unit_id == "complex-part-two:equations":
+        for root in [-7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6, 7, 8]:
+            coefficient = -2 * root
+            sign = f"+ {coefficient}x" if coefficient >= 0 else f"− {abs(coefficient)}x"
+            parameter = root**2
+            specs.append(
+                (
+                    0,
+                    f"При каком a уравнение x² {sign} + a = 0 имеет единственный корень?",
+                    str(parameter),
+                    f"Для единственного корня D = 0, поэтому a = {parameter}.",
+                )
+            )
+    elif unit_id == "complex-part-two:geometry":
+        for first, second, hypotenuse in [(6, 8, 10), (5, 12, 13), (8, 15, 17)]:
+            specs.append(
+                (
+                    0,
+                    f"В прямоугольном треугольнике катеты {first} и {second}. Найдите гипотенузу.",
+                    str(hypotenuse),
+                    f"По теореме Пифагора гипотенуза равна {hypotenuse}.",
+                )
+            )
+        for first_base, second_base, height in [(6, 14, 4), (8, 12, 5), (5, 11, 6)]:
+            area = (first_base + second_base) * height // 2
+            specs.append(
+                (
+                    0,
+                    (
+                        f"Основания трапеции равны {first_base} и {second_base}, "
+                        f"высота равна {height}. Найдите площадь."
+                    ),
+                    str(area),
+                    f"S = ({first_base} + {second_base}) · {height} / 2 = {area}.",
+                )
+            )
+        for diameter in [10, 14, 18]:
+            radius = diameter // 2
+            specs.append(
+                (
+                    0,
+                    f"Диаметр окружности равен {diameter}. Найдите её радиус.",
+                    str(radius),
+                    f"Радиус равен половине диаметра: {diameter} / 2 = {radius}.",
+                )
+            )
+        for side, height in [(3, 8), (4, 6), (5, 12)]:
+            volume = side * side * height // 3
+            specs.append(
+                (
+                    0,
+                    f"В правильной четырёхугольной пирамиде сторона основания {side}, высота {height}. Найдите объём.",
+                    str(volume),
+                    f"V = Sосн·h/3 = {side}²·{height}/3 = {volume}.",
+                )
+            )
+        for radius, height in [(2, 5), (3, 4), (4, 6)]:
+            coefficient = radius * radius * height
+            specs.append(
+                (
+                    1,
+                    (
+                        f"Радиус цилиндра равен {radius}, высота равна {height}. "
+                        "Найдите коэффициент при π в его объёме."
+                    ),
+                    str(coefficient),
+                    f"V = πr²h = {coefficient}π, поэтому коэффициент равен {coefficient}.",
+                )
+            )
+    elif unit_id == "complex-part-two:number_theory":
+        for first, second, answer in [
+            (4, 6, 12),
+            (6, 15, 30),
+            (8, 12, 24),
+            (9, 15, 45),
+            (10, 14, 70),
+            (12, 18, 36),
+            (14, 21, 42),
+            (15, 25, 75),
+            (16, 20, 80),
+            (18, 24, 72),
+            (20, 30, 60),
+            (21, 28, 84),
+            (22, 33, 66),
+            (24, 36, 72),
+            (25, 40, 200),
+        ]:
+            specs.append(
+                (
+                    0,
+                    f"Найдите наименьшее натуральное число, которое делится на {first} и на {second}.",
+                    str(answer),
+                    f"НОК({first}, {second}) = {answer}.",
+                )
+            )
+
+    generated = []
+    complex_geometry_subtopics = [
+        "geometry-triangles",
+        "geometry-quadrilaterals",
+        "geometry-circles",
+        "geometry-polyhedra",
+        "geometry-round-solids",
+    ]
+    for index, (task_index, prompt, answer, explanation) in enumerate(specs, start=1):
+        base_task = deepcopy(unit["tasks"][task_index])
+        subtopic_ids = [f"task:{base_task['id']}"]
+        if unit_id == "complex-part-two:geometry":
+            subtopic_ids = [complex_geometry_subtopics[(index - 1) // 3]]
+        base_task.update(
+            {
+                "prompt": prompt,
+                "answer_aliases": [answer, answer.replace(".", ",")],
+                "explanation": explanation,
+                "estimated_minutes": max(3, int(base_task["estimated_minutes"])),
+                "subtopic_ids": subtopic_ids,
+                "source": _assessment_source(unit_id, index),
+            }
+        )
+        generated.append(base_task)
+    return generated
+
+
+def _assessment_pool(unit: dict[str, object]) -> list[dict[str, object]]:
+    generated = _generated_assessment_tasks(unit)
+    source_tasks = generated or [*unit["homework_tasks"], *unit["practice_tasks"]]
+    unique: list[dict[str, object]] = []
+    seen_prompts: set[str] = set()
+    for task in source_tasks:
+        prompt = str(task["prompt"])
+        if prompt in seen_prompts:
+            continue
+        seen_prompts.add(prompt)
+        unique.append(deepcopy(task))
+    return unique
+
+
 def _lesson_units() -> list[dict[str, object]]:
     units: list[dict[str, object]] = []
     for stage in ROADMAP_STAGES:
@@ -1426,6 +1803,224 @@ def _has_correct_practice_task(
     )
 
 
+def _attempt_for_lesson_task_key(
+    attempts: list[dict[str, object]],
+    unit_id: str,
+    mode: str,
+    lesson_task_key: str,
+) -> dict[str, object] | None:
+    return next(
+        (
+            item
+            for item in attempts
+            if item.get("lesson_unit_id") == unit_id
+            and item.get("mode") == mode
+            and item.get("lesson_task_key") == lesson_task_key
+        ),
+        None,
+    )
+
+
+def _assessment_cycle_tasks(unit: dict[str, object], cycle: int) -> list[dict[str, object]]:
+    pool = _assessment_pool(unit)
+    subtopic_ids = list(_subtopic_titles(unit))
+    total = min(max(ASSESSMENT_TASKS_PER_CYCLE, len(subtopic_ids)), len(pool))
+    used_prompts: set[str] = set()
+    selected: list[dict[str, object]] = []
+    for _ in range(cycle):
+        available = [task for task in pool if str(task["prompt"]) not in used_prompts]
+        if len(available) < total:
+            used_prompts.clear()
+            available = list(pool)
+        cycle_selection: list[dict[str, object]] = []
+        selected_prompts: set[str] = set()
+        for subtopic_id in subtopic_ids[:total]:
+            candidate = next(
+                (
+                    task
+                    for task in available
+                    if str(task["prompt"]) not in selected_prompts
+                    and subtopic_id in (task.get("subtopic_ids") or [f"task:{task['id']}"])
+                ),
+                None,
+            )
+            if candidate is not None:
+                cycle_selection.append(candidate)
+                selected_prompts.add(str(candidate["prompt"]))
+        for task in available:
+            if len(cycle_selection) >= total:
+                break
+            if str(task["prompt"]) in selected_prompts:
+                continue
+            cycle_selection.append(task)
+            selected_prompts.add(str(task["prompt"]))
+        selected = [deepcopy(task) for task in cycle_selection]
+        used_prompts.update(selected_prompts)
+    for index, task in enumerate(selected, start=1):
+        task["lesson_task_key"] = f"{unit['id']}:assessment:{cycle}:{index}"
+        task["assessment_cycle"] = cycle
+    return selected
+
+
+def _subtopic_titles(unit: dict[str, object]) -> dict[str, str]:
+    sections = unit["theory"].get("sections", [])
+    if sections:
+        return {str(section["id"]): str(section["title"]) for section in sections}
+    return {f"task:{task['id']}": str(task["title"]) for task in unit["tasks"]}
+
+
+def _remediation_plan(
+    unit: dict[str, object],
+    cycle: int,
+    assessment_tasks: list[dict[str, object]],
+    assessment_attempts: list[dict[str, object]],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    attempts_by_key = {str(item["lesson_task_key"]): item for item in assessment_attempts}
+    error_counts: dict[str, int] = defaultdict(int)
+    wrong_prompts: set[str] = set()
+    for task in assessment_tasks:
+        attempt = attempts_by_key.get(str(task["lesson_task_key"]))
+        if attempt is None or bool(attempt["is_correct"]):
+            continue
+        wrong_prompts.add(str(task["prompt"]))
+        subtopic_ids = task.get("subtopic_ids") or [f"task:{task['id']}"]
+        for subtopic_id in subtopic_ids:
+            error_counts[str(subtopic_id)] += 1
+
+    pool = [task for task in _assessment_pool(unit) if str(task["prompt"]) not in wrong_prompts]
+    if not pool:
+        pool = _assessment_pool(unit)
+    titles = _subtopic_titles(unit)
+    remediation_tasks: list[dict[str, object]] = []
+    weak_subtopics = []
+    for subtopic_index, (subtopic_id, errors) in enumerate(
+        sorted(error_counts.items(), key=lambda item: (-item[1], item[0]))
+    ):
+        task_count = errors * REMEDIATION_TASKS_PER_ERROR
+        candidates = [
+            task
+            for task in pool
+            if subtopic_id in (task.get("subtopic_ids") or [f"task:{task['id']}"])
+        ] or pool
+        weak_subtopics.append(
+            {
+                "id": subtopic_id,
+                "title": titles.get(subtopic_id, "Связанная подтема"),
+                "errors": errors,
+                "assigned_tasks": task_count,
+            }
+        )
+        for index in range(task_count):
+            task = deepcopy(candidates[(cycle + subtopic_index + index) % len(candidates)])
+            task["lesson_task_key"] = (
+                f"{unit['id']}:remediation:{cycle}:{subtopic_index + 1}:{index + 1}"
+            )
+            task["assessment_cycle"] = cycle
+            task["remediation_subtopic_id"] = subtopic_id
+            task["remediation_subtopic_title"] = titles.get(subtopic_id, "Связанная подтема")
+            remediation_tasks.append(task)
+    return remediation_tasks, weak_subtopics
+
+
+def _assessment_state(
+    unit: dict[str, object], attempts: list[dict[str, object]]
+) -> dict[str, object]:
+    unit_id = str(unit["id"])
+    previous_scores: list[int] = []
+    cycle = 1
+    while cycle <= 100:
+        tasks = _assessment_cycle_tasks(unit, cycle)
+        cycle_attempts = [
+            attempt
+            for task in tasks
+            if (
+                attempt := _attempt_for_lesson_task_key(
+                    attempts,
+                    unit_id,
+                    "assessment",
+                    str(task["lesson_task_key"]),
+                )
+            )
+            is not None
+        ]
+        attempted = len(cycle_attempts)
+        correct = sum(bool(item["is_correct"]) for item in cycle_attempts)
+        if attempted < len(tasks):
+            return {
+                "phase": "assessment",
+                "cycle": cycle,
+                "passed": False,
+                "retake": cycle > 1,
+                "attempted_tasks": attempted,
+                "correct_tasks": correct,
+                "total_tasks": len(tasks),
+                "score_percent": round(correct / attempted * 100) if attempted else None,
+                "previous_score_percent": previous_scores[-1] if previous_scores else None,
+                "current_task_index": attempted,
+                "tasks": tasks,
+                "remediation_tasks": [],
+                "weak_subtopics": [],
+            }
+
+        score_percent = round(correct / len(tasks) * 100)
+        if score_percent >= ASSESSMENT_PASS_PERCENT:
+            return {
+                "phase": "passed",
+                "cycle": cycle,
+                "passed": True,
+                "retake": cycle > 1,
+                "attempted_tasks": attempted,
+                "correct_tasks": correct,
+                "total_tasks": len(tasks),
+                "score_percent": score_percent,
+                "previous_score_percent": previous_scores[-1] if previous_scores else None,
+                "current_task_index": len(tasks),
+                "tasks": tasks,
+                "remediation_tasks": [],
+                "weak_subtopics": [],
+            }
+
+        previous_scores.append(score_percent)
+        remediation_tasks, weak_subtopics = _remediation_plan(unit, cycle, tasks, cycle_attempts)
+        remediation_attempts = [
+            attempt
+            for task in remediation_tasks
+            if (
+                attempt := _attempt_for_lesson_task_key(
+                    attempts,
+                    unit_id,
+                    "remediation",
+                    str(task["lesson_task_key"]),
+                )
+            )
+            is not None
+        ]
+        if len(remediation_attempts) < len(remediation_tasks):
+            return {
+                "phase": "remediation",
+                "cycle": cycle,
+                "passed": False,
+                "retake": False,
+                "attempted_tasks": attempted,
+                "correct_tasks": correct,
+                "total_tasks": len(tasks),
+                "score_percent": score_percent,
+                "previous_score_percent": score_percent,
+                "current_task_index": len(tasks),
+                "tasks": tasks,
+                "remediation_attempted_tasks": len(remediation_attempts),
+                "remediation_correct_tasks": sum(
+                    bool(item["is_correct"]) for item in remediation_attempts
+                ),
+                "remediation_tasks": remediation_tasks,
+                "current_remediation_index": len(remediation_attempts),
+                "weak_subtopics": weak_subtopics,
+            }
+        cycle += 1
+
+    raise RuntimeError("Assessment cycle limit exceeded")
+
+
 def _lesson_unit_state(
     unit: dict[str, object],
     attempts: list[dict[str, object]],
@@ -1461,12 +2056,15 @@ def _lesson_unit_state(
         len(homework_tasks),
     )
     homework_done = homework_attempted_tasks == len(homework_tasks)
-    if practice_done:
+    assessment = _assessment_state(unit, attempts) if practice_done else None
+    if practice_done and assessment and assessment["passed"]:
         current_step = "complete"
     elif not theory_done:
         current_step = "theory"
-    else:
+    elif not practice_done:
         current_step = "practice"
+    else:
+        current_step = str(assessment["phase"])
     return {
         "current_step": current_step,
         "theory_done": theory_done,
@@ -1481,7 +2079,9 @@ def _lesson_unit_state(
         "homework_total_tasks": len(homework_tasks),
         "current_homework_index": current_homework_index,
         "homework_assigned": practice_done,
-        "complete": practice_done,
+        "assessment": assessment,
+        "assessment_passed": bool(assessment and assessment["passed"]),
+        "complete": bool(assessment and assessment["passed"]),
     }
 
 
@@ -1492,13 +2092,57 @@ def _scaled_progress(completed: int, total: int, weight: int) -> int:
 
 
 def _lesson_progress(unit_state: dict[str, object]) -> int:
-    theory_progress = 50 if bool(unit_state["theory_done"]) else 0
+    if bool(unit_state["complete"]):
+        return 100
+    theory_progress = 30 if bool(unit_state["theory_done"]) else 0
     practice_progress = _scaled_progress(
         int(unit_state["practice_attempted_tasks"]),
         int(unit_state["practice_total_tasks"]),
-        50,
+        40,
     )
-    return min(100, theory_progress + practice_progress)
+    assessment = unit_state.get("assessment")
+    if not isinstance(assessment, dict):
+        return theory_progress + practice_progress
+    if assessment["phase"] == "remediation":
+        remediation_progress = _scaled_progress(
+            int(assessment["remediation_attempted_tasks"]),
+            len(assessment["remediation_tasks"]),
+            14,
+        )
+        return min(99, 75 + remediation_progress)
+    assessment_progress = _scaled_progress(
+        int(assessment["attempted_tasks"]),
+        int(assessment["total_tasks"]),
+        29,
+    )
+    if bool(assessment["retake"]):
+        assessment_progress = max(15, assessment_progress)
+    return min(99, theory_progress + practice_progress + assessment_progress)
+
+
+def _roadmap_assessment_summary(unit_state: dict[str, object]) -> dict[str, object]:
+    assessment = unit_state.get("assessment")
+    if not isinstance(assessment, dict):
+        return {
+            "status": "locked",
+            "cycle": 1,
+            "retake": False,
+            "pass_percent": ASSESSMENT_PASS_PERCENT,
+            "total_tasks": ASSESSMENT_TASKS_PER_CYCLE,
+            "score_percent": None,
+            "weak_subtopics": [],
+        }
+    return {
+        "status": assessment["phase"],
+        "cycle": assessment["cycle"],
+        "retake": assessment["retake"],
+        "pass_percent": ASSESSMENT_PASS_PERCENT,
+        "total_tasks": assessment["total_tasks"],
+        "score_percent": (
+            None if assessment["phase"] == "assessment" else assessment["score_percent"]
+        ),
+        "weak_subtopics": deepcopy(assessment["weak_subtopics"]),
+    }
 
 
 def _unit_subtopics(
@@ -1645,8 +2289,25 @@ def get_current_lesson(session_id: str) -> dict[str, object]:
     unit_state = states[current_index]
     current_step = str(unit_state["current_step"])
     theory = deepcopy(unit["theory"])
-    practice_task = _public_task(unit["practice_tasks"][int(unit_state["current_practice_index"])])
+    practice_task = (
+        _public_task(unit["practice_tasks"][int(unit_state["current_practice_index"])])
+        if current_step in {"theory", "practice"}
+        else None
+    )
     homework_task = _public_task(unit["homework_task"])
+    assessment_state = unit_state.get("assessment")
+    assessment_task = None
+    remediation_task = None
+    if isinstance(assessment_state, dict) and current_step == "assessment":
+        assessment_task = _public_task(
+            assessment_state["tasks"][int(assessment_state["current_task_index"])]
+        )
+    if isinstance(assessment_state, dict) and current_step == "remediation":
+        remediation_task = _public_task(
+            assessment_state["remediation_tasks"][
+                int(assessment_state["current_remediation_index"])
+            ]
+        )
     steps = [
         {
             "id": "theory",
@@ -1659,6 +2320,14 @@ def get_current_lesson(session_id: str) -> dict[str, object]:
             "state": _step_state(
                 bool(unit_state["practice_done"]),
                 current_step == "practice",
+            ),
+        },
+        {
+            "id": "assessment",
+            "label": "Контрольная",
+            "state": _step_state(
+                bool(unit_state["assessment_passed"]),
+                current_step in {"assessment", "remediation"},
             ),
         },
     ]
@@ -1696,6 +2365,59 @@ def get_current_lesson(session_id: str) -> dict[str, object]:
             "current_task_number": int(unit_state["current_practice_index"]) + 1,
             "topic_id": topic["id"],
         },
+        "assessment_task": assessment_task,
+        "assessment": (
+            {
+                "status": assessment_state["phase"],
+                "cycle": assessment_state["cycle"],
+                "retake": assessment_state["retake"],
+                "pass_percent": ASSESSMENT_PASS_PERCENT,
+                "attempted_tasks": assessment_state["attempted_tasks"],
+                "correct_tasks": (
+                    None
+                    if assessment_state["phase"] == "assessment"
+                    else assessment_state["correct_tasks"]
+                ),
+                "total_tasks": assessment_state["total_tasks"],
+                "current_task_number": min(
+                    int(assessment_state["current_task_index"]) + 1,
+                    int(assessment_state["total_tasks"]),
+                ),
+                "score_percent": (
+                    None
+                    if assessment_state["phase"] == "assessment"
+                    else assessment_state["score_percent"]
+                ),
+                "previous_score_percent": assessment_state["previous_score_percent"],
+                "weak_subtopics": deepcopy(assessment_state["weak_subtopics"]),
+            }
+            if isinstance(assessment_state, dict)
+            else {
+                "status": "locked",
+                "cycle": 1,
+                "retake": False,
+                "pass_percent": ASSESSMENT_PASS_PERCENT,
+                "attempted_tasks": 0,
+                "correct_tasks": 0,
+                "total_tasks": ASSESSMENT_TASKS_PER_CYCLE,
+                "current_task_number": 1,
+                "score_percent": None,
+                "previous_score_percent": None,
+                "weak_subtopics": [],
+            }
+        ),
+        "remediation_task": remediation_task,
+        "remediation": (
+            {
+                "attempted_tasks": assessment_state["remediation_attempted_tasks"],
+                "correct_tasks": assessment_state["remediation_correct_tasks"],
+                "total_tasks": len(assessment_state["remediation_tasks"]),
+                "current_task_number": int(assessment_state["current_remediation_index"]) + 1,
+                "weak_subtopics": deepcopy(assessment_state["weak_subtopics"]),
+            }
+            if isinstance(assessment_state, dict) and assessment_state["phase"] == "remediation"
+            else None
+        ),
         "homework_task": homework_task,
     }
 
@@ -1835,7 +2557,10 @@ def _validate_lesson_attempt(
     if lesson["unit_id"] != lesson_unit_id or lesson["current_step"] != mode:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Follow the roadmap lesson order: theory, then practice",
+            detail=(
+                "Follow the roadmap lesson order: theory, practice, assessment, "
+                "and remediation when assigned"
+            ),
         )
     expected_task = lesson[f"{mode}_task"]
     if expected_task["id"] != task_id:
@@ -1843,26 +2568,26 @@ def _validate_lesson_attempt(
             status_code=status.HTTP_409_CONFLICT,
             detail="This task is not the current roadmap step",
         )
-    if mode == "practice":
+    if mode in {"practice", "assessment", "remediation"}:
         if lesson_task_key is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="lesson_task_key is required for a practice attempt",
+                detail=f"lesson_task_key is required for a {mode} attempt",
             )
         if expected_task.get("lesson_task_key") != lesson_task_key:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="This practice task is no longer available for answering",
+                detail=f"This {mode} task is no longer available for answering",
             )
         if any(
             item.get("lesson_unit_id") == lesson_unit_id
-            and item.get("mode") == "practice"
+            and item.get("mode") == mode
             and item.get("lesson_task_key") == lesson_task_key
             for item in _session_attempts(session_id)
         ):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="This practice task has already been answered",
+                detail=f"This {mode} task has already been answered",
             )
 
 
@@ -1914,9 +2639,29 @@ def _lesson_task_by_key(
 ) -> dict[str, object]:
     collection_name = "homework_tasks" if mode == "homework" else "practice_tasks"
     task = next(
+        (item for item in unit[collection_name] if item.get("lesson_task_key") == lesson_task_key),
+        None,
+    )
+    if task is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lesson task not found",
+        )
+    return task
+
+
+def _assessment_task_by_key(
+    unit: dict[str, object],
+    attempts: list[dict[str, object]],
+    mode: str,
+    lesson_task_key: str,
+) -> dict[str, object]:
+    assessment = _assessment_state(unit, attempts)
+    collection_name = "tasks" if mode == "assessment" else "remediation_tasks"
+    task = next(
         (
             item
-            for item in unit[collection_name]
+            for item in assessment[collection_name]
             if item.get("lesson_task_key") == lesson_task_key
         ),
         None,
@@ -1924,7 +2669,7 @@ def _lesson_task_by_key(
     if task is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lesson task not found",
+            detail="Assessment task not found",
         )
     return task
 
@@ -2017,7 +2762,9 @@ def get_ai_hint_context(
     }
 
 
-def _attempt_task_context(attempt: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:
+def _attempt_task_context(
+    attempt: dict[str, object],
+) -> tuple[dict[str, object], dict[str, object]]:
     unit_id = attempt.get("lesson_unit_id")
     lesson_task_key = attempt.get("lesson_task_key")
     mode = str(attempt.get("mode", "diagnostic"))
@@ -2074,6 +2821,64 @@ def get_ai_error_context(session_id: str, attempt_id: str) -> dict[str, object]:
     }
 
 
+def get_ai_assessment_context(
+    session_id: str,
+    lesson_unit_id: str,
+) -> dict[str, object]:
+    lesson = get_current_lesson(session_id)
+    if (
+        lesson.get("status") != "active"
+        or lesson.get("unit_id") != lesson_unit_id
+        or lesson.get("current_step") != "remediation"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="AI can analyze only the failed control test awaiting remediation",
+        )
+    attempts = _session_attempts(session_id)
+    unit = _lesson_unit_by_id(lesson_unit_id)
+    assessment = _assessment_state(unit, attempts)
+    tasks_by_key = {str(task["lesson_task_key"]): task for task in assessment["tasks"]}
+    wrong_attempts = []
+    for attempt in attempts:
+        if (
+            attempt.get("lesson_unit_id") != lesson_unit_id
+            or attempt.get("mode") != "assessment"
+            or not str(attempt.get("lesson_task_key", "")).startswith(
+                f"{lesson_unit_id}:assessment:{assessment['cycle']}:"
+            )
+            or bool(attempt["is_correct"])
+        ):
+            continue
+        task = tasks_by_key[str(attempt["lesson_task_key"])]
+        wrong_attempts.append(
+            {
+                "prompt": task["prompt"],
+                "student_answer": attempt["answer"],
+                "verified_answer": task["answer_aliases"][0],
+                "verified_solution": task["explanation"],
+                "subtopic_ids": deepcopy(task.get("subtopic_ids", [])),
+            }
+        )
+    return {
+        "exam": "ЕГЭ по профильной математике",
+        "topic": deepcopy(lesson["topic"]),
+        "lesson_unit_id": lesson_unit_id,
+        "assessment_cycle": assessment["cycle"],
+        "score_percent": assessment["score_percent"],
+        "pass_percent": ASSESSMENT_PASS_PERCENT,
+        "weak_subtopics": deepcopy(assessment["weak_subtopics"]),
+        "wrong_attempts": wrong_attempts,
+        "remediation_rule": (
+            f"За каждую ошибку по подтеме назначено {REMEDIATION_TASKS_PER_ERROR} задания."
+        ),
+        "evidence_limit": (
+            "Доступны только короткие ответы ученика, поэтому конкретный неверный "
+            "шаг нельзя считать доказанным без записи решения."
+        ),
+    }
+
+
 def submit_attempt(
     session_id: str,
     task_id: str,
@@ -2096,23 +2901,28 @@ def submit_attempt(
     lesson_task = None
     if mode == "practice":
         lesson_before_attempt = get_current_lesson(session_id)
-        lesson_unit = next(
-            unit for unit in _lesson_units() if unit["id"] == lesson_before_attempt.get("unit_id")
-        )
-        lesson_task = next(
-            item
-            for item in lesson_unit["practice_tasks"]
-            if item["lesson_task_key"] == lesson_task_key
+        lesson_unit = _lesson_unit_by_id(str(lesson_before_attempt["unit_id"]))
+        lesson_task = _lesson_task_by_key(
+            lesson_unit,
+            "practice",
+            str(lesson_task_key),
         )
     elif mode == "homework":
         homework_before_attempt = get_current_homework(session_id)
-        lesson_unit = next(
-            unit for unit in _lesson_units() if unit["id"] == homework_before_attempt.get("unit_id")
+        lesson_unit = _lesson_unit_by_id(str(homework_before_attempt["unit_id"]))
+        lesson_task = _lesson_task_by_key(
+            lesson_unit,
+            "homework",
+            str(lesson_task_key),
         )
-        lesson_task = next(
-            item
-            for item in lesson_unit["homework_tasks"]
-            if item["lesson_task_key"] == lesson_task_key
+    elif mode in {"assessment", "remediation"}:
+        lesson_before_attempt = get_current_lesson(session_id)
+        lesson_unit = _lesson_unit_by_id(str(lesson_before_attempt["unit_id"]))
+        lesson_task = _assessment_task_by_key(
+            lesson_unit,
+            _session_attempts(session_id),
+            mode,
+            str(lesson_task_key),
         )
     accepted_answers = list(
         lesson_task["answer_aliases"] if isinstance(lesson_task, dict) else task["answer_aliases"]
@@ -2136,10 +2946,48 @@ def submit_attempt(
     topic = next(item for item in TOPICS if item["id"] == task["topic_id"])
     lesson_after_attempt = get_current_lesson(session_id) if mode != "diagnostic" else None
     homework_after_attempt = get_current_homework(session_id) if mode != "diagnostic" else None
-    practice_unit_complete = bool(
+    practice_complete = bool(
         mode == "practice"
         and isinstance(lesson_after_attempt, dict)
-        and lesson_after_attempt.get("unit_id") != lesson_unit_id
+        and (
+            lesson_after_attempt.get("unit_id") != lesson_unit_id
+            or lesson_after_attempt.get("current_step") != "practice"
+        )
+    )
+    original_unit_state = (
+        _lesson_unit_state(
+            _lesson_unit_by_id(str(lesson_unit_id)),
+            _session_attempts(session_id),
+            _session_theory_completions(session_id),
+        )
+        if mode != "diagnostic" and lesson_unit_id
+        else None
+    )
+    lesson_unit_complete = bool(
+        mode == "assessment"
+        and isinstance(original_unit_state, dict)
+        and original_unit_state["complete"]
+    )
+    assessment_finished = bool(
+        mode == "assessment"
+        and isinstance(original_unit_state, dict)
+        and original_unit_state["assessment"]["phase"] != "assessment"
+    )
+    assessment_outcome = (
+        {
+            "passed": bool(original_unit_state["assessment"]["passed"]),
+            "score_percent": original_unit_state["assessment"]["score_percent"],
+            "pass_percent": ASSESSMENT_PASS_PERCENT,
+            "cycle": original_unit_state["assessment"]["cycle"],
+            "weak_subtopics": deepcopy(original_unit_state["assessment"]["weak_subtopics"]),
+        }
+        if assessment_finished and isinstance(original_unit_state, dict)
+        else None
+    )
+    remediation_complete = bool(
+        mode == "remediation"
+        and isinstance(lesson_after_attempt, dict)
+        and lesson_after_attempt.get("current_step") == "assessment"
     )
     homework_unit_complete = bool(
         mode == "homework"
@@ -2149,37 +2997,78 @@ def submit_attempt(
             or homework_after_attempt.get("unit_id") != lesson_unit_id
         )
     )
+    if homework_unit_complete:
+        recommendation = (
+            "Отлично. Домашняя работа завершена."
+            if is_correct
+            else "Домашняя работа завершена. Ошибки добавлены в план повторения."
+        )
+    elif mode == "homework":
+        recommendation = (
+            "Верно. Переходите к следующей самостоятельной задаче."
+            if is_correct
+            else "Задание отмечено неверным. Переходите к следующему."
+        )
+    elif assessment_finished and lesson_unit_complete:
+        recommendation = "Контрольная пройдена. Следующий тематический блок открыт."
+    elif assessment_finished:
+        recommendation = "Контрольная не пройдена. Назначена отработка проблемных подтем."
+    elif remediation_complete:
+        recommendation = "Отработка завершена. Доступна повторная контрольная с новыми заданиями."
+    elif mode == "assessment":
+        recommendation = "Ответ сохранён. Продолжайте контрольную."
+    elif mode == "remediation":
+        recommendation = (
+            "Верно. Продолжайте отработку."
+            if is_correct
+            else "Разберите решение и переходите к следующему заданию отработки."
+        )
+    elif practice_complete:
+        recommendation = (
+            "Практика завершена. Домашнее задание добавлено отдельно; открыта контрольная."
+        )
+    elif mode == "practice":
+        recommendation = (
+            "Верно. Продолжайте следующей задачей по этой же теории."
+            if is_correct
+            else "Задание отмечено неверным. Тема добавлена в повторение."
+        )
+    else:
+        recommendation = (
+            "Отлично. Переходите к следующему шагу занятия."
+            if is_correct
+            else "Задание отмечено неверным. Тема добавлена в повторение."
+        )
+
+    public_attempt = deepcopy(attempt)
+    if mode == "assessment":
+        public_attempt["is_correct"] = None
+
     return {
-        "attempt": deepcopy(attempt),
-        "is_correct": is_correct,
-        "earned_primary_score": int(task["max_primary_score"]) if is_correct else 0,
+        "attempt": public_attempt,
+        "is_correct": None if mode == "assessment" else is_correct,
+        "earned_primary_score": (
+            None if mode == "assessment" else int(task["max_primary_score"]) if is_correct else 0
+        ),
         "max_primary_score": task["max_primary_score"],
         "explanation": (
-            lesson_task["explanation"] if isinstance(lesson_task, dict) else task["explanation"]
+            "Ответ сохранён. Результаты откроются после завершения контрольной."
+            if mode == "assessment"
+            else lesson_task["explanation"]
+            if isinstance(lesson_task, dict)
+            else task["explanation"]
         ),
-        "correct_answer": accepted_answers[0],
+        "correct_answer": None if mode == "assessment" else accepted_answers[0],
         "theory_id": task["theory_id"],
         "topic": {"id": topic["id"], "title": topic["title"]},
-        "recommendation": (
-            "Отлично. Домашняя работа завершена."
-            if homework_unit_complete and is_correct
-            else "Домашняя работа завершена. Ошибки добавлены в план повторения."
-            if homework_unit_complete
-            else "Верно. Переходите к следующей самостоятельной задаче."
-            if is_correct and mode == "homework"
-            else "Задание отмечено неверным. Повторный ответ недоступен; переходите к следующему."
-            if mode == "homework"
-            else "Тематический блок завершён. Домашнее задание добавлено отдельно."
-            if practice_unit_complete
-            else "Верно. Продолжайте следующей задачей по этой же теории."
-            if is_correct and mode == "practice"
-            else "Отлично. Переходите к следующему шагу занятия."
-            if is_correct
-            else "Задание отмечено неверным. Повторный ответ недоступен; тема добавлена в повторение."
-        ),
+        "recommendation": recommendation,
         "lesson": lesson_after_attempt,
         "homework": homework_after_attempt,
-        "lesson_unit_complete": practice_unit_complete,
+        "practice_complete": practice_complete,
+        "assessment_finished": assessment_finished,
+        "assessment_outcome": assessment_outcome,
+        "remediation_complete": remediation_complete,
+        "lesson_unit_complete": lesson_unit_complete,
         "homework_unit_complete": homework_unit_complete,
     }
 
@@ -2460,6 +3349,7 @@ def get_roadmap(session_id: str) -> dict[str, object]:
                             lesson_states[str(unit["id"])],
                             attempts,
                         ),
+                        "assessment": _roadmap_assessment_summary(lesson_states[str(unit["id"])]),
                         "lesson_state": (
                             "completed"
                             if lesson_states[str(unit["id"])]["complete"]
@@ -2515,6 +3405,7 @@ def get_roadmap(session_id: str) -> dict[str, object]:
                 "current_step": unit_state["current_step"],
                 "progress": _lesson_progress(unit_state),
                 "subtopics": _unit_subtopics(unit, unit_state, attempts),
+                "assessment": _roadmap_assessment_summary(unit_state),
                 "lesson_state": (
                     "completed"
                     if unit_state["complete"]
@@ -2577,18 +3468,33 @@ def get_student_dashboard(session_id: str) -> dict[str, object]:
     lesson_today = None
     if lesson["status"] == "active":
         current_step = str(lesson["current_step"])
+        step_labels = {
+            "theory": "Теория",
+            "practice": "Практика",
+            "assessment": "Контрольная",
+            "remediation": "Отработка",
+        }
+        current_task = (
+            lesson["practice_task"]
+            if current_step == "practice"
+            else lesson["assessment_task"]
+            if current_step == "assessment"
+            else lesson["remediation_task"]
+            if current_step == "remediation"
+            else None
+        )
         lesson_today = {
             "unit_id": lesson["unit_id"],
             "title": lesson["topic"]["short_title"],
             "description": lesson["topic"]["description"],
             "step": current_step,
-            "step_label": "Теория" if current_step == "theory" else "Практика",
+            "step_label": step_labels[current_step],
             "progress": lesson["progress"],
             "subtopics": lesson["subtopics"],
             "estimated_minutes": (
                 lesson["theory"]["read_minutes"]
                 if current_step == "theory"
-                else lesson["practice_task"]["estimated_minutes"]
+                else current_task["estimated_minutes"]
             ),
             "href": "#lessons",
         }

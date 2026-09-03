@@ -11,7 +11,10 @@ from app.modules.ai.provider import (
 )
 from app.modules.ai.schemas import (
     AIStatusRead,
+    AnalyzeAssessmentCreate,
     AnalyzeErrorCreate,
+    AssessmentAnalysisGenerated,
+    AssessmentAnalysisRead,
     ErrorAnalysisGenerated,
     ErrorAnalysisRead,
     ExplainTheoryCreate,
@@ -22,6 +25,7 @@ from app.modules.ai.schemas import (
     TheoryExplanationRead,
 )
 from app.modules.exam_prep.service import (
+    get_ai_assessment_context,
     get_ai_error_context,
     get_ai_hint_context,
     get_ai_theory_context,
@@ -106,7 +110,12 @@ def get_ai_status(provider: AIProvider) -> AIStatusRead:
         provider=provider.provider_name,
         model=provider.model,
         configured=provider.configured,
-        capabilities=["theory_explanation", "task_hints", "error_analysis"],
+        capabilities=[
+            "theory_explanation",
+            "task_hints",
+            "error_analysis",
+            "assessment_analysis",
+        ],
     )
 
 
@@ -211,4 +220,37 @@ confidence_note.
         provider=provider.provider_name,
         model=provider.model,
         attempt_id=payload.attempt_id,
+    )
+
+
+async def analyze_assessment(
+    payload: AnalyzeAssessmentCreate,
+    provider: AIProvider,
+) -> AssessmentAnalysisRead:
+    context = get_ai_assessment_context(payload.session_id, payload.lesson_unit_id)
+    generated = await _generate(
+        provider,
+        system_prompt=f"""{_COMMON_RULES}
+
+Проанализируй только результаты завершённой контрольной из контекста. Список
+weak_subtopics, количество ошибок и объём отработки уже вычислены системой и являются
+фактами: не меняй их. Объясни ученику, какие подтемы просели и в каком порядке их
+повторять. Связывай каждый вывод с конкретным неверным ответом или правилом, но не
+выдумывай ход решения, если ученик прислал только короткий ответ. study_plan должен
+помочь пройти уже назначенную отработку, а не создавать другой маршрут.
+
+JSON-поля: diagnosis, evidence, focus_order, study_plan, encouragement,
+confidence_note.
+""",
+        context=context,
+        output_model=AssessmentAnalysisGenerated,
+        max_tokens=750,
+    )
+    return AssessmentAnalysisRead(
+        **generated.model_dump(),
+        provider=provider.provider_name,
+        model=provider.model,
+        lesson_unit_id=payload.lesson_unit_id,
+        cycle=int(context["assessment_cycle"]),
+        score_percent=int(context["score_percent"]),
     )

@@ -3,7 +3,13 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.modules.exam_prep.catalog import TASKS
-from app.modules.exam_prep.service import _lesson_units, reset_demo_state
+from app.modules.exam_prep.service import (
+    _assessment_cycle_tasks,
+    _assessment_pool,
+    _lesson_units,
+    _subtopic_titles,
+    reset_demo_state,
+)
 from app.modules.users.dependencies import get_current_admin
 from app.modules.users.models import User, UserRole, UserStatus
 
@@ -90,6 +96,76 @@ def solve_current_homework(
     return results
 
 
+def solve_current_assessment(
+    client: TestClient,
+    session_id: str,
+    *,
+    correct: bool = True,
+) -> list[dict[str, object]]:
+    results = []
+    while True:
+        lesson = client.get(
+            "/api/v1/exam/math-profile/lesson/current",
+            params={"session_id": session_id},
+        ).json()["data"]
+        if lesson["current_step"] != "assessment":
+            break
+        public_task = lesson["assessment_task"]
+        unit = next(item for item in _lesson_units() if item["id"] == lesson["unit_id"])
+        internal_task = next(
+            item
+            for item in _assessment_cycle_tasks(unit, lesson["assessment"]["cycle"])
+            if item["lesson_task_key"] == public_task["lesson_task_key"]
+        )
+        response = client.post(
+            "/api/v1/exam/math-profile/attempts",
+            json={
+                "session_id": session_id,
+                "task_id": public_task["id"],
+                "answer": internal_task["answer_aliases"][0] if correct else "wrong",
+                "mode": "assessment",
+                "lesson_unit_id": lesson["unit_id"],
+                "lesson_task_key": public_task["lesson_task_key"],
+            },
+        )
+        assert response.status_code == 200
+        results.append(response.json()["data"])
+    return results
+
+
+def solve_current_remediation(
+    client: TestClient,
+    session_id: str,
+) -> list[dict[str, object]]:
+    results = []
+    while True:
+        lesson = client.get(
+            "/api/v1/exam/math-profile/lesson/current",
+            params={"session_id": session_id},
+        ).json()["data"]
+        if lesson["current_step"] != "remediation":
+            break
+        public_task = lesson["remediation_task"]
+        unit = next(item for item in _lesson_units() if item["id"] == lesson["unit_id"])
+        internal_task = next(
+            item for item in _assessment_pool(unit) if item["prompt"] == public_task["prompt"]
+        )
+        response = client.post(
+            "/api/v1/exam/math-profile/attempts",
+            json={
+                "session_id": session_id,
+                "task_id": public_task["id"],
+                "answer": internal_task["answer_aliases"][0],
+                "mode": "remediation",
+                "lesson_unit_id": lesson["unit_id"],
+                "lesson_task_key": public_task["lesson_task_key"],
+            },
+        )
+        assert response.status_code == 200
+        results.append(response.json()["data"])
+    return results
+
+
 def complete_current_unit(
     client: TestClient,
     session_id: str,
@@ -98,6 +174,7 @@ def complete_current_unit(
 ) -> None:
     complete_current_theory(client, session_id)
     solve_current_practice(client, session_id, practice_answers)
+    solve_current_assessment(client, session_id)
     solve_current_homework(client, session_id, homework_answers)
 
 
@@ -204,6 +281,7 @@ def test_geometry_has_paged_theory_twenty_practice_and_fifteen_homework_tasks(
             "8",
         ],
     )
+    solve_current_assessment(client, session_id)
     solve_current_homework(
         client,
         session_id,
@@ -390,6 +468,22 @@ def test_guided_tasks_are_explicitly_bound_to_theory_sections() -> None:
         assert len(homework_prompts) == homework_count
         assert theory_examples.isdisjoint(practice_prompts | homework_prompts)
         assert practice_prompts.isdisjoint(homework_prompts)
+
+
+def test_each_control_covers_the_block_subtopics_and_retake_is_fresh() -> None:
+    for unit in _lesson_units():
+        first_cycle = _assessment_cycle_tasks(unit, 1)
+        second_cycle = _assessment_cycle_tasks(unit, 2)
+        required_subtopics = set(_subtopic_titles(unit))
+        covered_subtopics = {
+            subtopic_id for task in first_cycle for subtopic_id in task.get("subtopic_ids", [])
+        }
+
+        assert len(first_cycle) >= 5
+        assert required_subtopics <= covered_subtopics
+        assert {task["prompt"] for task in first_cycle}.isdisjoint(
+            task["prompt"] for task in second_cycle
+        )
 
 
 def test_probability_has_paged_theory_twenty_practice_and_fifteen_homework_tasks(
@@ -759,7 +853,24 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
     assert lesson["current_step"] == "theory"
     assert lesson["progress"] == 0
     assert len(lesson["subtopics"]) == 4
-    assert [step["state"] for step in lesson["steps"]] == ["current", "locked"]
+    assert [step["state"] for step in lesson["steps"]] == [
+        "current",
+        "locked",
+        "locked",
+    ]
+    assert lesson["assessment"] == {
+        "status": "locked",
+        "cycle": 1,
+        "retake": False,
+        "pass_percent": 60,
+        "attempted_tasks": 0,
+        "correct_tasks": 0,
+        "total_tasks": 5,
+        "current_task_number": 1,
+        "score_percent": None,
+        "previous_score_percent": None,
+        "weak_subtopics": [],
+    }
     assert lesson["practice_task"]["id"] == "math-02"
     assert lesson["homework_task"]["id"] == "math-02"
     assert lesson["practice_task"]["prompt"] != lesson["homework_task"]["prompt"]
@@ -786,7 +897,7 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
         json={"session_id": "lesson-student", "lesson_unit_id": lesson["unit_id"]},
     ).json()["data"]
     assert after_theory["current_step"] == "practice"
-    assert after_theory["progress"] == 50
+    assert after_theory["progress"] == 30
     assert all(item["progress"] == 50 for item in after_theory["subtopics"])
     assert after_theory["practice"] == {
         "attempted_tasks": 0,
@@ -815,7 +926,7 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
     assert first_result["lesson"]["practice"]["attempted_tasks"] == 1
     assert first_result["lesson"]["practice"]["correct_tasks"] == 0
     assert first_result["lesson"]["practice"]["current_task_number"] == 2
-    assert first_result["lesson"]["progress"] == 53
+    assert first_result["lesson"]["progress"] == 32
     subtopics_after_first = {item["id"]: item for item in first_result["lesson"]["subtopics"]}
     assert subtopics_after_first["vector-length"]["progress"] == 58
     assert subtopics_after_first["vector-coordinates"]["progress"] == 50
@@ -899,14 +1010,95 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
         if example
     }
     assert theory_examples.isdisjoint(vector_prompts)
-    assert practice["lesson_unit_complete"] is True
-    assert practice["lesson"]["topic"]["id"] == "geometry"
-    assert practice["lesson"]["current_step"] == "theory"
+    assert practice["practice_complete"] is True
+    assert practice["lesson_unit_complete"] is False
+    assert practice["lesson"]["topic"]["id"] == "vectors"
+    assert practice["lesson"]["current_step"] == "assessment"
+    assert practice["lesson"]["assessment"]["pass_percent"] == 60
+    assert practice["lesson"]["assessment"]["total_tasks"] == 5
     assert practice["homework"]["status"] == "active"
     assert practice["homework"]["topic"]["id"] == "vectors"
     assert practice["homework"]["total_tasks"] == 15
     assert practice["homework"]["current_task_number"] == 1
     assert practice["homework"]["pending_count"] == 15
+
+    first_assessment_prompts = []
+    assessment_result = None
+    for task_number in range(1, 6):
+        current_lesson = client.get(
+            "/api/v1/exam/math-profile/lesson/current",
+            params={"session_id": "lesson-student"},
+        ).json()["data"]
+        control_task = current_lesson["assessment_task"]
+        first_assessment_prompts.append(control_task["prompt"])
+        assessment_result = client.post(
+            "/api/v1/exam/math-profile/attempts",
+            json={
+                "session_id": "lesson-student",
+                "task_id": control_task["id"],
+                "answer": "wrong",
+                "mode": "assessment",
+                "lesson_unit_id": lesson["unit_id"],
+                "lesson_task_key": control_task["lesson_task_key"],
+            },
+        ).json()["data"]
+        assert assessment_result["is_correct"] is None
+        assert assessment_result["attempt"]["is_correct"] is None
+        assert assessment_result["correct_answer"] is None
+        if task_number < 5:
+            assert assessment_result["assessment_finished"] is False
+            assert assessment_result["assessment_outcome"] is None
+
+    assert assessment_result["assessment_finished"] is True
+    assert assessment_result["assessment_outcome"]["passed"] is False
+    assert assessment_result["assessment_outcome"]["score_percent"] == 0
+    weak_subtopics = assessment_result["assessment_outcome"]["weak_subtopics"]
+    assert sum(item["assigned_tasks"] for item in weak_subtopics) == 10
+    assert sum(item["errors"] for item in weak_subtopics) == 5
+    assert assessment_result["lesson"]["current_step"] == "remediation"
+
+    blocked_retake = client.post(
+        "/api/v1/exam/math-profile/attempts",
+        json={
+            "session_id": "lesson-student",
+            "task_id": control_task["id"],
+            "answer": "wrong",
+            "mode": "assessment",
+            "lesson_unit_id": lesson["unit_id"],
+            "lesson_task_key": control_task["lesson_task_key"],
+        },
+    )
+    assert blocked_retake.status_code == 409
+
+    remediation_results = solve_current_remediation(client, "lesson-student")
+    assert len(remediation_results) == 10
+    assert remediation_results[-1]["remediation_complete"] is True
+    retake = client.get(
+        "/api/v1/exam/math-profile/lesson/current",
+        params={"session_id": "lesson-student"},
+    ).json()["data"]
+    assert retake["current_step"] == "assessment"
+    assert retake["assessment"]["retake"] is True
+    assert retake["assessment"]["cycle"] == 2
+    vector_unit = next(item for item in _lesson_units() if item["id"] == lesson["unit_id"])
+    second_assessment_prompts = [item["prompt"] for item in _assessment_cycle_tasks(vector_unit, 2)]
+    assert set(first_assessment_prompts).isdisjoint(second_assessment_prompts)
+    retake_results = solve_current_assessment(client, "lesson-student")
+    assert len(retake_results) == 5
+    assert retake_results[-1]["assessment_outcome"] == {
+        "passed": True,
+        "score_percent": 100,
+        "pass_percent": 60,
+        "cycle": 2,
+        "weak_subtopics": [],
+    }
+    assert retake_results[-1]["lesson_unit_complete"] is True
+    passed_lesson = client.get(
+        "/api/v1/exam/math-profile/lesson/current",
+        params={"session_id": "lesson-student"},
+    ).json()["data"]
+    assert passed_lesson["topic"]["id"] == "geometry"
+    assert passed_lesson["current_step"] == "theory"
 
     first_homework = practice["homework"]
     first_homework_task = first_homework["task"]

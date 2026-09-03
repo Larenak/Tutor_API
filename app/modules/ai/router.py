@@ -6,14 +6,22 @@ from app.api.responses import SuccessResponse, success
 from app.modules.ai.provider import AIProvider, get_ai_provider
 from app.modules.ai.schemas import (
     AIStatusRead,
+    AnalyzeAssessmentCreate,
     AnalyzeErrorCreate,
+    AssessmentAnalysisRead,
     ErrorAnalysisRead,
     ExplainTheoryCreate,
     HintCreate,
     HintRead,
     TheoryExplanationRead,
 )
-from app.modules.ai.service import analyze_error, explain_theory, generate_hint, get_ai_status
+from app.modules.ai.service import (
+    analyze_assessment,
+    analyze_error,
+    explain_theory,
+    generate_hint,
+    get_ai_status,
+)
 
 router = APIRouter(prefix="/ai", tags=["AI tutor"])
 ProviderDependency = Annotated[AIProvider, Depends(get_ai_provider)]
@@ -46,3 +54,14 @@ async def analyze_attempt_error(
     provider: ProviderDependency,
 ) -> SuccessResponse[ErrorAnalysisRead]:
     return success(await analyze_error(payload, provider))
+
+
+@router.post(
+    "/analyze-assessment",
+    response_model=SuccessResponse[AssessmentAnalysisRead],
+)
+async def analyze_failed_assessment(
+    payload: AnalyzeAssessmentCreate,
+    provider: ProviderDependency,
+) -> SuccessResponse[AssessmentAnalysisRead]:
+    return success(await analyze_assessment(payload, provider))

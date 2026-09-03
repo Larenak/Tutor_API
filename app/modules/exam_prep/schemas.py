@@ -8,7 +8,13 @@ class AttemptCreate(BaseModel):
     task_id: str = Field(min_length=1, max_length=40)
     answer: str = Field(min_length=1, max_length=500)
     duration_seconds: int = Field(default=0, ge=0, le=14_400)
-    mode: Literal["diagnostic", "practice", "homework"] = "diagnostic"
+    mode: Literal[
+        "diagnostic",
+        "practice",
+        "homework",
+        "assessment",
+        "remediation",
+    ] = "diagnostic"
     lesson_unit_id: str | None = Field(default=None, min_length=1, max_length=100)
     lesson_task_key: str | None = Field(default=None, min_length=1, max_length=140)
 

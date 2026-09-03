@@ -26,6 +26,11 @@ class AnalyzeErrorCreate(BaseModel):
     attempt_id: str = Field(min_length=1, max_length=100)
 
 
+class AnalyzeAssessmentCreate(BaseModel):
+    session_id: str = Field(default="local-student", min_length=1, max_length=80)
+    lesson_unit_id: str = Field(min_length=1, max_length=100)
+
+
 class AIStatusRead(BaseModel):
     provider: str
     model: str
@@ -138,3 +143,21 @@ class ErrorAnalysisRead(ErrorAnalysisGenerated):
     provider: str
     model: str
     attempt_id: str
+
+
+class AssessmentAnalysisGenerated(GeneratedResponse):
+    diagnosis: str = Field(min_length=1, max_length=700)
+    evidence: list[str] = Field(min_length=1, max_length=6)
+    focus_order: list[str] = Field(min_length=1, max_length=6)
+    study_plan: list[str] = Field(min_length=2, max_length=8)
+    encouragement: str = Field(min_length=1, max_length=350)
+    confidence_note: str = Field(min_length=1, max_length=450)
+
+
+class AssessmentAnalysisRead(AssessmentAnalysisGenerated):
+    type: Literal["assessment_analysis"] = "assessment_analysis"
+    provider: str
+    model: str
+    lesson_unit_id: str
+    cycle: int
+    score_percent: int

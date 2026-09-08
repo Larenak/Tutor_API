@@ -28,7 +28,7 @@ const state = {
   page: "dashboard",
   overview: null,
   tasks: [],
-  theory: [],
+  completedTheory: [],
   analytics: null,
   roadmap: null,
   lesson: null,
@@ -130,9 +130,10 @@ function userRequest(path, options = {}) {
 }
 
 async function loadData() {
-  const [overview, tasks, theory, analytics, roadmap, lesson, homework, dashboard, aiStatus] =
+  const [overview, tasks, completedTheory, analytics, roadmap, lesson, homework, dashboard, aiStatus] =
     await Promise.all([
-      request("/overview"), request("/tasks"), request("/theory"),
+      request("/overview"), request("/tasks"),
+      request(`/theory/completed?session_id=${sessionId}`),
       request(`/analytics?session_id=${sessionId}`),
       request(`/roadmap?session_id=${sessionId}`),
       request(`/lesson/current?session_id=${sessionId}`),
@@ -140,7 +141,7 @@ async function loadData() {
       request(`/dashboard?session_id=${sessionId}`),
       aiRequest("/status").catch(() => ({ provider: "deepseek", model: "—", configured: false, capabilities: [] })),
     ]);
-  Object.assign(state, { overview, tasks, theory, analytics, roadmap, lesson, homework, dashboard, aiStatus });
+  Object.assign(state, { overview, tasks, completedTheory, analytics, roadmap, lesson, homework, dashboard, aiStatus });
   if (state.role === "admin") {
     const [admin, adminUsers, adminTasks] = await Promise.all([
       request("/admin/dashboard"), request("/admin/users"), request("/admin/tasks"),
@@ -922,6 +923,51 @@ function renderLessonTheory(chapter) {
   return `<ul class="formula-list">${chapter.key_points.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>`;
 }
 
+function renderCompletedTheorySection(section) {
+  return `<section class="theory-section" id="completed-theory-section-${escapeHtml(section.id)}">
+    <header><span>${escapeHtml(section.number)}</span><div><p>Экзаменационная база</p><h3>${escapeHtml(section.title)}</h3></div></header>
+    <div class="theory-section-layout ${section.diagram ? "with-diagram" : ""}">
+      <div class="theory-section-copy"><p class="section-lead">${escapeHtml(section.lead)}</p>
+        <ul class="explanation-list">${section.paragraphs.map((paragraph) => `<li>${escapeHtml(paragraph)}</li>`).join("")}</ul>
+        <div class="section-formulas">${section.formulas.map((formula) => `<code>${escapeHtml(formula)}</code>`).join("")}</div>
+      </div>
+      ${theoryDiagram(section.diagram)}
+    </div>
+    <div class="example-row">${renderTheoryExample(section.example)}${renderTheoryExample(section.secondary_example, true)}</div>
+    <p class="exam-note"><b>На ЕГЭ</b>${escapeHtml(section.exam_note)}</p>
+  </section>`;
+}
+
+function renderCompletedTheoryContent(chapter) {
+  const scope = chapter.exam_scope
+    ? `<section class="exam-scope"><div><span>${escapeHtml(chapter.exam_scope.label)}</span><h3>Что действительно проверяют</h3><p>${escapeHtml(chapter.exam_scope.text)}</p></div><ul>${chapter.exam_scope.skills.map((skill) => `<li>${escapeHtml(skill)}</li>`).join("")}</ul></section>`
+    : "";
+  const lessonBlocks = chapter.sections?.length
+    ? `<div class="detailed-theory completed-theory-blocks">${chapter.sections.map(renderCompletedTheorySection).join("")}</div>`
+    : `<section class="completed-theory-key-points"><p class="eyebrow">Ключевые правила урока</p><ul class="formula-list">${chapter.key_points.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul></section>`;
+  const patterns = chapter.exam_patterns?.length
+    ? `<section class="exam-pattern-section"><p class="eyebrow">Формулировки и методы</p><h3>Как узнать тип задания</h3><div class="exam-pattern-grid">${chapter.exam_patterns.map((pattern, index) => `<article><span>${String(index + 1).padStart(2, "0")}</span><b>${escapeHtml(pattern.title)}</b><p>${escapeHtml(pattern.method)}</p></article>`).join("")}</div></section>`
+    : "";
+  const review = chapter.mistakes?.length && chapter.checklist?.length
+    ? `<div class="theory-review-grid"><section class="mistake-card"><p class="eyebrow">Типичные ошибки</p><h3>Где теряют балл</h3><ul>${chapter.mistakes.map((mistake) => `<li>${escapeHtml(mistake)}</li>`).join("")}</ul></section><section class="checklist-card"><p class="eyebrow">Перед ответом</p><h3>Проверка за 20 секунд</h3><ol>${chapter.checklist.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></section></div>`
+    : "";
+  const reference = chapter.reference
+    ? `<footer class="theory-reference"><b>Основа конспекта</b><span>${escapeHtml(chapter.reference.title)} · ${escapeHtml(chapter.reference.sections)}</span><small>${escapeHtml(chapter.reference.note)}</small></footer>`
+    : "";
+  return `${scope}${lessonBlocks}${patterns}${review}${reference}<aside class="theory-tip"><b>Совет для повторения</b>${escapeHtml(chapter.tip)}</aside>`;
+}
+
+function renderCompletedTheoryCard(item) {
+  const chapter = item.theory;
+  return `<article class="completed-theory-chapter" id="completed-theory-${escapeHtml(chapter.id)}">
+    <header class="completed-theory-heading">
+      <span class="completed-theory-position">${String(item.position).padStart(2, "0")}</span>
+      <div class="completed-theory-title"><p class="eyebrow">${escapeHtml(chapter.eyebrow)}</p><h2>${escapeHtml(chapter.title)}</h2><p>${escapeHtml(chapter.summary)}</p></div>
+    </header>
+    <div class="completed-theory-content">${renderCompletedTheoryContent(chapter)}</div>
+  </article>`;
+}
+
 function renderTheoryActions(chapter, reviewingTheory, lesson) {
   const returnLabel = lesson.current_step === "remediation" ? "Вернуться к отработке →" : "Вернуться к практике →";
   const completedLabel = lesson.current_step === "remediation"
@@ -1164,13 +1210,14 @@ function renderHomework() {
 }
 
 async function refreshLearningData() {
-  const [analytics, roadmap, lesson, homework, dashboard] = await Promise.all([
+  const [completedTheory, analytics, roadmap, lesson, homework, dashboard] = await Promise.all([
+    request(`/theory/completed?session_id=${sessionId}`),
     request(`/analytics?session_id=${sessionId}`), request(`/roadmap?session_id=${sessionId}`),
     request(`/lesson/current?session_id=${sessionId}`),
     request(`/homework/current?session_id=${sessionId}`),
     request(`/dashboard?session_id=${sessionId}`),
   ]);
-  Object.assign(state, { analytics, roadmap, lesson, homework, dashboard });
+  Object.assign(state, { completedTheory, analytics, roadmap, lesson, homework, dashboard });
   if (state.role === "admin") {
     const [admin, adminUsers] = await Promise.all([
       request("/admin/dashboard"), request("/admin/users"),
@@ -1491,21 +1538,15 @@ async function submitAnswer(event) {
 }
 
 function renderTheory() {
-  view.innerHTML = `${pageHeader("Библиотека", "Теория по темам ЕГЭ", "Каждый конспект связан с конкретными номерами практики.")}
-    <div class="theory-grid">${state.theory.map((chapter) => {
-    const tasks = state.tasks.filter((task) => task.theory_id === chapter.id);
-    return `<article class="theory-card ${state.focusTheory === chapter.id ? "focused" : ""}" id="theory-${chapter.id}">
-        <p class="eyebrow">${chapter.eyebrow}</p><h2>${chapter.title}</h2><p>${chapter.summary}</p>
-        <ul class="formula-list">${chapter.key_points.map((point) => `<li>${point}</li>`).join("")}</ul>
-        <div class="task-link-row">${tasks.map((task) => `<a href="#practice-${task.id}" data-open-task="${task.id}" class="task-link ${task.difficulty === "expert" ? "complex" : ""}">Практика №${task.exam_number}</a>`).join("")}</div>
-        <div class="theory-foot"><span>${chapter.read_minutes} минут</span><button class="text-button" data-theory="${chapter.id}">Совет по теме</button></div>
-      </article>`;
-  }).join("")}</div>`;
-  document.querySelectorAll("[data-theory]").forEach((button) => button.addEventListener("click", () => {
-    const chapter = state.theory.find((item) => item.id === button.dataset.theory);
-    toast(`Совет: ${chapter.tip}`);
-  }));
-  bindContentLinks();
+  const chapters = state.completedTheory;
+  if (!chapters.length) {
+    view.innerHTML = `${pageHeader("Конспект", "Пройденная теория", "Только теория из уже завершённых теоретических блоков.")}
+      <section class="theory-history-empty"><span>∑</span><h2>Пока нет пройденных конспектов</h2><p>Завершите теоретическую часть первого урока — материал автоматически появится здесь.</p><button class="primary-button" data-go="lessons">Перейти к уроку →</button></section>`;
+    bindGoButtons();
+    return;
+  }
+  view.innerHTML = `${pageHeader("Конспект", "Пройденная теория", "Теоретические блоки расположены в порядке первого прохождения.")}
+    <div class="theory-history-list" aria-label="Пройденные теоретические блоки">${chapters.map(renderCompletedTheoryCard).join("")}</div>`;
 }
 
 function renderPredictionHistory(history, maxScore) {
@@ -1601,6 +1642,10 @@ function bindGoButtons() {
 function bindContentLinks() {
   document.querySelectorAll("[data-open-task], [data-open-theory], [data-roadmap-topic]").forEach((link) => link.addEventListener("click", (event) => {
     event.preventDefault();
+    if (link.dataset.openTheory) {
+      openTheory(link.dataset.openTheory);
+      return;
+    }
     const requestedTopic = link.dataset.roadmapTopic;
     const currentTopic = state.lesson.status === "active" ? state.lesson.topic.id : null;
     goTo(requestedTopic && requestedTopic !== currentTopic ? "roadmap" : "lessons");
@@ -1617,10 +1662,17 @@ function openPracticeTask(taskId) {
 }
 
 function openTheory(theoryId) {
-  if (!state.theory.some((chapter) => chapter.id === theoryId)) return;
+  if (!state.completedTheory.some((item) => item.theory.id === theoryId)) {
+    goTo("lessons");
+    toast("Этот конспект появится в разделе после прохождения теории на уроке.");
+    return;
+  }
   state.focusTheory = theoryId;
   goTo("theory");
-  requestAnimationFrame(() => document.querySelector(`#theory-${CSS.escape(theoryId)}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+  requestAnimationFrame(() => {
+    const chapter = document.querySelector(`#completed-theory-${CSS.escape(theoryId)}`);
+    chapter?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 
 function updateHomeworkBadge() {
@@ -1645,7 +1697,7 @@ function setActiveNav() {
 }
 
 function goTo(page) {
-  if (page === "practice" || page === "theory") page = "lessons";
+  if (page === "practice") page = "lessons";
   if (page === "admin" && state.role !== "admin") page = "dashboard";
   state.page = page;
   window.location.hash = page === "dashboard" ? "" : page;
@@ -1658,7 +1710,7 @@ function goTo(page) {
 function render() {
   const pages = {
     dashboard: renderDashboard, roadmap: renderRoadmap, lessons: renderLessons,
-    homework: renderHomework, analytics: renderAnalytics, admin: renderAdmin,
+    theory: renderTheory, homework: renderHomework, analytics: renderAnalytics, admin: renderAdmin,
   };
   (pages[state.page] || renderDashboard)();
 }
@@ -1670,6 +1722,7 @@ function resetPrivateState() {
     analytics: null,
     roadmap: null,
     lesson: null,
+    completedTheory: [],
     homework: null,
     dashboard: null,
     admin: null,
@@ -1772,10 +1825,11 @@ async function initializeLearningView() {
     await loadData();
     updateHomeworkBadge();
     const hash = window.location.hash.slice(1);
-    const allowedPages = ["roadmap", "lessons", "homework", "analytics"];
+    const allowedPages = ["roadmap", "lessons", "theory", "homework", "analytics"];
     if (state.role === "admin") allowedPages.push("admin");
     if (allowedPages.includes(hash)) goTo(hash);
-    else if (hash.startsWith("practice-") || hash.startsWith("theory-")) goTo("lessons");
+    else if (hash.startsWith("theory-")) openTheory(hash.slice("theory-".length));
+    else if (hash.startsWith("practice-")) goTo("lessons");
     else {
       setActiveNav();
       render();

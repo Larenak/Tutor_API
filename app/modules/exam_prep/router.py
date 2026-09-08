@@ -9,6 +9,7 @@ from app.modules.exam_prep.service import (
     get_admin_dashboard,
     get_admin_users,
     get_analytics,
+    get_completed_theory,
     get_current_homework,
     get_current_lesson,
     get_overview,
@@ -41,6 +42,13 @@ async def tasks(
 @router.get("/theory", response_model=SuccessResponse[list[dict[str, object]]])
 async def theory(topic_id: str | None = None) -> SuccessResponse[list[dict[str, object]]]:
     return success(list_theory(topic_id=topic_id))
+
+
+@router.get("/theory/completed", response_model=SuccessResponse[list[dict[str, object]]])
+async def completed_theory(
+    session_id: Annotated[str, Query(min_length=1, max_length=80)] = "local-student",
+) -> SuccessResponse[list[dict[str, object]]]:
+    return success(get_completed_theory(session_id))
 
 
 @router.post("/attempts", response_model=SuccessResponse[dict[str, object]])

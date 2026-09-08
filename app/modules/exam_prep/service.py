@@ -11,6 +11,7 @@ from app.modules.exam_prep.catalog import EXAM, ROADMAP_STAGES, TASKS, THEORY, T
 _lock = Lock()
 _attempts: dict[str, list[dict[str, object]]] = {}
 _theory_completions: dict[str, set[str]] = {}
+_theory_completion_order: dict[str, list[str]] = {}
 _published: dict[str, bool] = {str(task["id"]): True for task in TASKS}
 
 ASSESSMENT_PASS_PERCENT = 60
@@ -2501,6 +2502,9 @@ def complete_lesson_theory(session_id: str, lesson_unit_id: str) -> dict[str, ob
         )
     with _lock:
         _theory_completions.setdefault(session_id, set()).add(lesson_unit_id)
+        completion_order = _theory_completion_order.setdefault(session_id, [])
+        if lesson_unit_id not in completion_order:
+            completion_order.append(lesson_unit_id)
     return get_current_lesson(session_id)
 
 
@@ -2623,6 +2627,44 @@ def list_theory(topic_id: str | None = None) -> list[dict[str, object]]:
         THEORY if topic_id is None else [item for item in THEORY if item["topic_id"] == topic_id]
     )
     return deepcopy(chapters)
+
+
+def get_completed_theory(session_id: str) -> list[dict[str, object]]:
+    """Return unique theory chapters in the order this student completed them."""
+    completions = _session_theory_completions(session_id)
+    with _lock:
+        recorded_order = list(_theory_completion_order.get(session_id, []))
+
+    units = _lesson_units()
+    units_by_id = {str(unit["id"]): unit for unit in units}
+    ordered_unit_ids = [
+        unit_id
+        for unit_id in recorded_order
+        if unit_id in completions and unit_id in units_by_id
+    ]
+    recorded_ids = set(ordered_unit_ids)
+    ordered_unit_ids.extend(
+        str(unit["id"])
+        for unit in units
+        if str(unit["id"]) in completions and str(unit["id"]) not in recorded_ids
+    )
+
+    result: list[dict[str, object]] = []
+    seen_theory_ids: set[str] = set()
+    for unit_id in ordered_unit_ids:
+        unit = units_by_id[unit_id]
+        theory = deepcopy(unit["theory"])
+        theory_id = str(theory["id"])
+        if theory_id in seen_theory_ids:
+            continue
+        seen_theory_ids.add(theory_id)
+        result.append(
+            {
+                "position": len(result) + 1,
+                "theory": theory,
+            }
+        )
+    return result
 
 
 def _lesson_unit_by_id(unit_id: str) -> dict[str, object]:
@@ -3681,5 +3723,6 @@ def reset_demo_state() -> None:
     with _lock:
         _attempts.clear()
         _theory_completions.clear()
+        _theory_completion_order.clear()
         _published.clear()
         _published.update({str(task["id"]): True for task in TASKS})

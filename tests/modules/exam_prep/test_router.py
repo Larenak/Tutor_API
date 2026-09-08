@@ -235,6 +235,16 @@ def test_vector_theory_covers_only_current_exam_methods(client: TestClient) -> N
     assert lesson["theory"]["sections"] == chapter["sections"]
 
 
+def test_completed_theory_is_empty_before_the_first_lesson(client: TestClient) -> None:
+    response = client.get(
+        "/api/v1/exam/math-profile/theory/completed",
+        params={"session_id": "new-theory-student"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"] == []
+
+
 def test_geometry_has_paged_theory_twenty_practice_and_fifteen_homework_tasks(
     client: TestClient,
 ) -> None:
@@ -339,6 +349,17 @@ def test_geometry_has_paged_theory_twenty_practice_and_fifteen_homework_tasks(
     after_theory = complete_current_theory(client, session_id)
     assert after_theory["practice"]["total_tasks"] == 20
     assert all(item["progress"] == 50 for item in after_theory["subtopics"])
+    completed_theory = client.get(
+        "/api/v1/exam/math-profile/theory/completed",
+        params={"session_id": session_id},
+    ).json()["data"]
+    assert [item["theory"]["topic_id"] for item in completed_theory] == [
+        "vectors",
+        "geometry",
+    ]
+    assert [item["position"] for item in completed_theory] == [1, 2]
+    assert all(set(item) == {"position", "theory"} for item in completed_theory)
+    assert completed_theory[1]["theory"]["sections"] == chapter["sections"]
 
     practice_prompts = []
     practice_sources = []
@@ -1266,3 +1287,4 @@ def test_website_is_served(client: TestClient) -> None:
     assert 'id="app-shell"' in response.text
     assert "Домашние задания" in response.text
     assert "Уроки" in response.text
+    assert "Пройденная теория" in response.text

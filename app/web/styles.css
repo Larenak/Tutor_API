@@ -446,6 +446,42 @@ a { color: inherit; }
 .formula-list li { padding: 8px 10px; border-radius: 8px; background: var(--surface-2); font-family: Georgia, serif; font-size: 12px; }
 .theory-foot { display: flex; align-items: center; justify-content: space-between; padding-top: 12px; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: 9px; }
 
+.theory-history-empty {
+  min-height: 360px;
+  padding: 54px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  border: 1px dashed #c9cbc3;
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: center;
+}
+.theory-history-empty > span { display: grid; place-items: center; width: 62px; height: 62px; margin-bottom: 20px; border-radius: 18px; color: #fff; background: var(--teal); font-family: Georgia, serif; font-size: 28px; }
+.theory-history-empty h2 { margin: 0; font-family: Georgia, serif; font-size: 30px; font-weight: 500; }
+.theory-history-empty p { max-width: 540px; margin: 10px 0 24px; color: var(--ink-soft); font-size: 16px; line-height: 1.6; }
+.theory-history-list { display: grid; gap: 24px; }
+.completed-theory-chapter { overflow: hidden; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); box-shadow: 0 10px 30px rgba(41,45,39,.035); }
+.completed-theory-heading {
+  margin: 0;
+  padding: 22px 24px;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+}
+.completed-theory-position { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 15px; color: var(--teal); background: var(--teal-soft); font-size: 14px; font-weight: 850; }
+.completed-theory-title { min-width: 0; }
+.completed-theory-title .eyebrow { margin: 0 0 5px; }
+.completed-theory-title h2 { margin: 0 0 6px; font-family: Georgia, serif; font-size: 28px; font-weight: 500; line-height: 1.2; }
+.completed-theory-title > p:last-child { margin: 0; color: var(--ink-soft); font-size: 16px; line-height: 1.5; }
+.completed-theory-content { padding: 28px 30px 32px; border-top: 1px solid var(--line); background: #fbfaf6; }
+.completed-theory-content .exam-scope { margin-top: 0; }
+.completed-theory-key-points { padding: 25px 27px; border: 1px solid var(--line); border-radius: 18px; background: #fff; }
+.completed-theory-key-points .formula-list { max-width: 850px; margin-bottom: 0; }
+.completed-theory-content .theory-tip { max-width: none; margin-top: 18px; }
+
 .lesson-shell { max-width: 920px; margin: 0 auto; }
 .lesson-context { display: grid; gap: 5px; padding: 20px 24px; border: 1px solid var(--line); border-radius: 16px 16px 0 0; background: var(--surface); }
 .lesson-context span { color: var(--orange-dark); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .09em; }
@@ -964,7 +1000,8 @@ button.roadmap-control:hover { transform: translateY(-2px); box-shadow: 0 9px 22
   .nav { min-height: 56px; padding: 6px 16px; display: flex; gap: 6px; overflow-x: auto; border-radius: 0; scrollbar-width: none; scroll-snap-type: x proximity; }
   .nav::-webkit-scrollbar { display: none; }
   .nav-item { min-width: 102px; min-height: 44px; padding: 6px 12px; scroll-snap-align: start; }
-  .nav-item:nth-child(3) { min-width: 162px; }
+  .nav-item:nth-child(3) { min-width: 172px; }
+  .nav-item:nth-child(4) { min-width: 162px; }
   .role-switch { min-width: 142px; }
   #view { padding: 25px 19px 50px; }
   .hero-grid, .two-column, .practice-layout { grid-template-columns: 1fr; }
@@ -1000,7 +1037,8 @@ button.roadmap-control:hover { transform: translateY(-2px); box-shadow: 0 9px 22
   .avatar { width: 34px; height: 34px; }
   .nav { min-height: 56px; padding: 6px 13px; }
   .nav-item { min-width: 96px; min-height: 44px; font-size: 14px; }
-  .nav-item:nth-child(3) { min-width: 158px; }
+  .nav-item:nth-child(3) { min-width: 168px; }
+  .nav-item:nth-child(4) { min-width: 158px; }
   .page-header { align-items: flex-start; flex-direction: column; }
   .page-header h1 { font-size: 38px; }
   .page-header p { font-size: 15px; }
@@ -1012,6 +1050,11 @@ button.roadmap-control:hover { transform: translateY(-2px); box-shadow: 0 9px 22
   .stage-meta { grid-column: 2; text-align: left; }
   .answer-row { flex-direction: column; }
   .theory-card { padding: 21px; }
+  .completed-theory-heading { padding: 18px 17px; grid-template-columns: 45px minmax(0, 1fr); gap: 13px; align-items: start; }
+  .completed-theory-position { width: 45px; height: 45px; }
+  .completed-theory-title h2 { font-size: 24px; }
+  .completed-theory-content { padding: 20px 17px 23px; }
+  .completed-theory-key-points { padding: 20px; }
   .lesson-stepper { grid-template-columns: 1fr; }
   .lesson-action, .practice-banner, .homework-banner, .practice-toolbar, .review-theory-banner, .assessment-banner { align-items: flex-start; flex-direction: column; }
   .theory-page-actions { align-items: stretch; flex-direction: column-reverse; }

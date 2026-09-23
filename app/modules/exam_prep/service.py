@@ -2057,15 +2057,12 @@ def _lesson_unit_state(
         len(homework_tasks),
     )
     homework_done = homework_attempted_tasks == len(homework_tasks)
-    assessment = _assessment_state(unit, attempts) if practice_done else None
-    if practice_done and assessment and assessment["passed"]:
-        current_step = "complete"
-    elif not theory_done:
+    if not theory_done:
         current_step = "theory"
     elif not practice_done:
         current_step = "practice"
     else:
-        current_step = str(assessment["phase"])
+        current_step = "complete"
     return {
         "current_step": current_step,
         "theory_done": theory_done,
@@ -2080,9 +2077,7 @@ def _lesson_unit_state(
         "homework_total_tasks": len(homework_tasks),
         "current_homework_index": current_homework_index,
         "homework_assigned": practice_done,
-        "assessment": assessment,
-        "assessment_passed": bool(assessment and assessment["passed"]),
-        "complete": bool(assessment and assessment["passed"]),
+        "complete": practice_done,
     }
 
 
@@ -2099,51 +2094,9 @@ def _lesson_progress(unit_state: dict[str, object]) -> int:
     practice_progress = _scaled_progress(
         int(unit_state["practice_attempted_tasks"]),
         int(unit_state["practice_total_tasks"]),
-        40,
+        70,
     )
-    assessment = unit_state.get("assessment")
-    if not isinstance(assessment, dict):
-        return theory_progress + practice_progress
-    if assessment["phase"] == "remediation":
-        remediation_progress = _scaled_progress(
-            int(assessment["remediation_attempted_tasks"]),
-            len(assessment["remediation_tasks"]),
-            14,
-        )
-        return min(99, 75 + remediation_progress)
-    assessment_progress = _scaled_progress(
-        int(assessment["attempted_tasks"]),
-        int(assessment["total_tasks"]),
-        29,
-    )
-    if bool(assessment["retake"]):
-        assessment_progress = max(15, assessment_progress)
-    return min(99, theory_progress + practice_progress + assessment_progress)
-
-
-def _roadmap_assessment_summary(unit_state: dict[str, object]) -> dict[str, object]:
-    assessment = unit_state.get("assessment")
-    if not isinstance(assessment, dict):
-        return {
-            "status": "locked",
-            "cycle": 1,
-            "retake": False,
-            "pass_percent": ASSESSMENT_PASS_PERCENT,
-            "total_tasks": ASSESSMENT_TASKS_PER_CYCLE,
-            "score_percent": None,
-            "weak_subtopics": [],
-        }
-    return {
-        "status": assessment["phase"],
-        "cycle": assessment["cycle"],
-        "retake": assessment["retake"],
-        "pass_percent": ASSESSMENT_PASS_PERCENT,
-        "total_tasks": assessment["total_tasks"],
-        "score_percent": (
-            None if assessment["phase"] == "assessment" else assessment["score_percent"]
-        ),
-        "weak_subtopics": deepcopy(assessment["weak_subtopics"]),
-    }
+    return theory_progress + practice_progress
 
 
 def _unit_subtopics(
@@ -2296,19 +2249,6 @@ def get_current_lesson(session_id: str) -> dict[str, object]:
         else None
     )
     homework_task = _public_task(unit["homework_task"])
-    assessment_state = unit_state.get("assessment")
-    assessment_task = None
-    remediation_task = None
-    if isinstance(assessment_state, dict) and current_step == "assessment":
-        assessment_task = _public_task(
-            assessment_state["tasks"][int(assessment_state["current_task_index"])]
-        )
-    if isinstance(assessment_state, dict) and current_step == "remediation":
-        remediation_task = _public_task(
-            assessment_state["remediation_tasks"][
-                int(assessment_state["current_remediation_index"])
-            ]
-        )
     steps = [
         {
             "id": "theory",
@@ -2321,14 +2261,6 @@ def get_current_lesson(session_id: str) -> dict[str, object]:
             "state": _step_state(
                 bool(unit_state["practice_done"]),
                 current_step == "practice",
-            ),
-        },
-        {
-            "id": "assessment",
-            "label": "Контрольная",
-            "state": _step_state(
-                bool(unit_state["assessment_passed"]),
-                current_step in {"assessment", "remediation"},
             ),
         },
     ]
@@ -2366,59 +2298,6 @@ def get_current_lesson(session_id: str) -> dict[str, object]:
             "current_task_number": int(unit_state["current_practice_index"]) + 1,
             "topic_id": topic["id"],
         },
-        "assessment_task": assessment_task,
-        "assessment": (
-            {
-                "status": assessment_state["phase"],
-                "cycle": assessment_state["cycle"],
-                "retake": assessment_state["retake"],
-                "pass_percent": ASSESSMENT_PASS_PERCENT,
-                "attempted_tasks": assessment_state["attempted_tasks"],
-                "correct_tasks": (
-                    None
-                    if assessment_state["phase"] == "assessment"
-                    else assessment_state["correct_tasks"]
-                ),
-                "total_tasks": assessment_state["total_tasks"],
-                "current_task_number": min(
-                    int(assessment_state["current_task_index"]) + 1,
-                    int(assessment_state["total_tasks"]),
-                ),
-                "score_percent": (
-                    None
-                    if assessment_state["phase"] == "assessment"
-                    else assessment_state["score_percent"]
-                ),
-                "previous_score_percent": assessment_state["previous_score_percent"],
-                "weak_subtopics": deepcopy(assessment_state["weak_subtopics"]),
-            }
-            if isinstance(assessment_state, dict)
-            else {
-                "status": "locked",
-                "cycle": 1,
-                "retake": False,
-                "pass_percent": ASSESSMENT_PASS_PERCENT,
-                "attempted_tasks": 0,
-                "correct_tasks": 0,
-                "total_tasks": ASSESSMENT_TASKS_PER_CYCLE,
-                "current_task_number": 1,
-                "score_percent": None,
-                "previous_score_percent": None,
-                "weak_subtopics": [],
-            }
-        ),
-        "remediation_task": remediation_task,
-        "remediation": (
-            {
-                "attempted_tasks": assessment_state["remediation_attempted_tasks"],
-                "correct_tasks": assessment_state["remediation_correct_tasks"],
-                "total_tasks": len(assessment_state["remediation_tasks"]),
-                "current_task_number": int(assessment_state["current_remediation_index"]) + 1,
-                "weak_subtopics": deepcopy(assessment_state["weak_subtopics"]),
-            }
-            if isinstance(assessment_state, dict) and assessment_state["phase"] == "remediation"
-            else None
-        ),
         "homework_task": homework_task,
     }
 
@@ -2562,8 +2441,7 @@ def _validate_lesson_attempt(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "Follow the roadmap lesson order: theory, practice, assessment, "
-                "and remediation when assigned"
+                "Follow the roadmap lesson order: theory, then practice"
             ),
         )
     expected_task = lesson[f"{mode}_task"]
@@ -2572,7 +2450,7 @@ def _validate_lesson_attempt(
             status_code=status.HTTP_409_CONFLICT,
             detail="This task is not the current roadmap step",
         )
-    if mode in {"practice", "assessment", "remediation"}:
+    if mode == "practice":
         if lesson_task_key is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -2957,15 +2835,6 @@ def submit_attempt(
             "homework",
             str(lesson_task_key),
         )
-    elif mode in {"assessment", "remediation"}:
-        lesson_before_attempt = get_current_lesson(session_id)
-        lesson_unit = _lesson_unit_by_id(str(lesson_before_attempt["unit_id"]))
-        lesson_task = _assessment_task_by_key(
-            lesson_unit,
-            _session_attempts(session_id),
-            mode,
-            str(lesson_task_key),
-        )
     accepted_answers = list(
         lesson_task["answer_aliases"] if isinstance(lesson_task, dict) else task["answer_aliases"]
     )
@@ -2996,41 +2865,7 @@ def submit_attempt(
             or lesson_after_attempt.get("current_step") != "practice"
         )
     )
-    original_unit_state = (
-        _lesson_unit_state(
-            _lesson_unit_by_id(str(lesson_unit_id)),
-            _session_attempts(session_id),
-            _session_theory_completions(session_id),
-        )
-        if mode != "diagnostic" and lesson_unit_id
-        else None
-    )
-    lesson_unit_complete = bool(
-        mode == "assessment"
-        and isinstance(original_unit_state, dict)
-        and original_unit_state["complete"]
-    )
-    assessment_finished = bool(
-        mode == "assessment"
-        and isinstance(original_unit_state, dict)
-        and original_unit_state["assessment"]["phase"] != "assessment"
-    )
-    assessment_outcome = (
-        {
-            "passed": bool(original_unit_state["assessment"]["passed"]),
-            "score_percent": original_unit_state["assessment"]["score_percent"],
-            "pass_percent": ASSESSMENT_PASS_PERCENT,
-            "cycle": original_unit_state["assessment"]["cycle"],
-            "weak_subtopics": deepcopy(original_unit_state["assessment"]["weak_subtopics"]),
-        }
-        if assessment_finished and isinstance(original_unit_state, dict)
-        else None
-    )
-    remediation_complete = bool(
-        mode == "remediation"
-        and isinstance(lesson_after_attempt, dict)
-        and lesson_after_attempt.get("current_step") == "assessment"
-    )
+    lesson_unit_complete = practice_complete
     homework_unit_complete = bool(
         mode == "homework"
         and isinstance(homework_after_attempt, dict)
@@ -3051,23 +2886,9 @@ def submit_attempt(
             if is_correct
             else "Задание отмечено неверным. Переходите к следующему."
         )
-    elif assessment_finished and lesson_unit_complete:
-        recommendation = "Контрольная пройдена. Следующий тематический блок открыт."
-    elif assessment_finished:
-        recommendation = "Контрольная не пройдена. Назначена отработка проблемных подтем."
-    elif remediation_complete:
-        recommendation = "Отработка завершена. Доступна повторная контрольная с новыми заданиями."
-    elif mode == "assessment":
-        recommendation = "Ответ сохранён. Продолжайте контрольную."
-    elif mode == "remediation":
-        recommendation = (
-            "Верно. Продолжайте отработку."
-            if is_correct
-            else "Разберите решение и переходите к следующему заданию отработки."
-        )
     elif practice_complete:
         recommendation = (
-            "Практика завершена. Домашнее задание добавлено отдельно; открыта контрольная."
+            "Практика завершена. Урок пройден, а домашнее задание добавлено отдельно."
         )
     elif mode == "practice":
         recommendation = (
@@ -3082,34 +2903,23 @@ def submit_attempt(
             else "Задание отмечено неверным. Тема добавлена в повторение."
         )
 
-    public_attempt = deepcopy(attempt)
-    if mode == "assessment":
-        public_attempt["is_correct"] = None
-
     return {
-        "attempt": public_attempt,
-        "is_correct": None if mode == "assessment" else is_correct,
-        "earned_primary_score": (
-            None if mode == "assessment" else int(task["max_primary_score"]) if is_correct else 0
-        ),
+        "attempt": deepcopy(attempt),
+        "is_correct": is_correct,
+        "earned_primary_score": int(task["max_primary_score"]) if is_correct else 0,
         "max_primary_score": task["max_primary_score"],
         "explanation": (
-            "Ответ сохранён. Результаты откроются после завершения контрольной."
-            if mode == "assessment"
-            else lesson_task["explanation"]
+            lesson_task["explanation"]
             if isinstance(lesson_task, dict)
             else task["explanation"]
         ),
-        "correct_answer": None if mode == "assessment" else accepted_answers[0],
+        "correct_answer": accepted_answers[0],
         "theory_id": task["theory_id"],
         "topic": {"id": topic["id"], "title": topic["title"]},
         "recommendation": recommendation,
         "lesson": lesson_after_attempt,
         "homework": homework_after_attempt,
         "practice_complete": practice_complete,
-        "assessment_finished": assessment_finished,
-        "assessment_outcome": assessment_outcome,
-        "remediation_complete": remediation_complete,
         "lesson_unit_complete": lesson_unit_complete,
         "homework_unit_complete": homework_unit_complete,
     }
@@ -3391,7 +3201,6 @@ def get_roadmap(session_id: str) -> dict[str, object]:
                             lesson_states[str(unit["id"])],
                             attempts,
                         ),
-                        "assessment": _roadmap_assessment_summary(lesson_states[str(unit["id"])]),
                         "lesson_state": (
                             "completed"
                             if lesson_states[str(unit["id"])]["complete"]
@@ -3447,7 +3256,6 @@ def get_roadmap(session_id: str) -> dict[str, object]:
                 "current_step": unit_state["current_step"],
                 "progress": _lesson_progress(unit_state),
                 "subtopics": _unit_subtopics(unit, unit_state, attempts),
-                "assessment": _roadmap_assessment_summary(unit_state),
                 "lesson_state": (
                     "completed"
                     if unit_state["complete"]
@@ -3513,16 +3321,10 @@ def get_student_dashboard(session_id: str) -> dict[str, object]:
         step_labels = {
             "theory": "Теория",
             "practice": "Практика",
-            "assessment": "Контрольная",
-            "remediation": "Отработка",
         }
         current_task = (
             lesson["practice_task"]
             if current_step == "practice"
-            else lesson["assessment_task"]
-            if current_step == "assessment"
-            else lesson["remediation_task"]
-            if current_step == "remediation"
             else None
         )
         lesson_today = {

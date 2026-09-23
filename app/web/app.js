@@ -47,7 +47,6 @@ const state = {
   aiTheoryAnswers: {},
   aiTheoryChecks: {},
   aiHints: {},
-  aiAssessmentAnalyses: {},
   dashboardSelectedDate: null,
   dashboardCalendarMonth: null,
 };
@@ -281,35 +280,6 @@ function renderRoadmapLesson(item, subtopic, index) {
   </${tag}>`;
 }
 
-function renderRoadmapAssessment(item) {
-  const assessment = item.assessment;
-  const status = assessment.status;
-  const interactive = item.lesson_state === "current" && ["assessment", "remediation"].includes(status);
-  const tag = interactive ? "button" : "article";
-  const attributes = interactive ? 'type="button" data-roadmap-control' : "";
-  const icon = status === "passed" ? "✓" : status === "remediation" ? "↻" : status === "assessment" ? "К" : "🔒";
-  const title = status === "passed"
-    ? "Контрольная пройдена"
-    : status === "remediation"
-      ? "Отработка перед пересдачей"
-      : status === "assessment" && assessment.retake
-        ? `Повторная контрольная · попытка ${assessment.cycle}`
-        : "Контрольная по блоку";
-  const result = Number.isInteger(assessment.score_percent)
-    ? `<strong>${assessment.score_percent}%</strong>`
-    : "";
-  const action = interactive
-    ? `<span>${status === "remediation" ? "Перейти к отработке" : "Начать контрольную"} →</span>`
-    : status === "passed"
-      ? ""
-      : '<span class="muted">Откроется после уроков блока</span>';
-  return `<${tag} class="roadmap-control ${status}" ${attributes} aria-label="${escapeHtml(title)}">
-    <i class="roadmap-control-icon" aria-hidden="true">${icon}</i>
-    <div><small>Финал блока</small><h3>${escapeHtml(title)}</h3><p>${assessment.total_tasks} заданий по пройденным подтемам · проходной балл ${assessment.pass_percent}%</p>${action}</div>
-    ${result}
-  </${tag}>`;
-}
-
 function renderRoadmapTopic(item) {
   const taskNumbers = item.task_numbers.map((number) => `<span>№${number}</span>`).join("");
   return `<section class="roadmap-topic-section ${item.lesson_state}" aria-labelledby="roadmap-topic-${item.position}">
@@ -322,7 +292,6 @@ function renderRoadmapTopic(item) {
     </header>
     <div class="roadmap-topic-info"><div class="roadmap-task-numbers" aria-label="Задания ЕГЭ">${taskNumbers}</div></div>
     <div class="lesson-window-grid">${item.subtopics.map((subtopic, index) => renderRoadmapLesson(item, subtopic, index)).join("")}</div>
-    ${renderRoadmapAssessment(item)}
   </section>`;
 }
 
@@ -423,7 +392,7 @@ function renderRoadmap() {
   const totalLessons = roadmap.lesson_order.reduce((total, item) => total + item.subtopics.length, 0);
   view.innerHTML = `${pageHeader("Персональный роадмап", "Темы и уроки", `${completedLessons} из ${totalLessons} уроков пройдено`)}
     <section class="roadmap-course" aria-label="Учебный маршрут по темам">
-      <div class="roadmap-course-heading"><div><h2>Программа курса</h2><p>В каждой теме — уроки по отдельным подтемам и итоговая контрольная.</p></div></div>
+      <div class="roadmap-course-heading"><div><h2>Программа курса</h2><p>В каждой теме — теория по подтемам и практика для закрепления.</p></div></div>
       <div class="roadmap-topic-sections">${roadmap.lesson_order.map(renderRoadmapTopic).join("")}</div>
     </section>`;
   document.querySelectorAll("[data-roadmap-lesson]").forEach((button) => button.addEventListener("click", () => {
@@ -436,11 +405,10 @@ function renderRoadmap() {
     state.lessonView = state.lesson.current_step === "practice" ? "theory" : null;
     goTo("lessons");
   }));
-  document.querySelector("[data-roadmap-control]")?.addEventListener("click", () => goTo("lessons"));
 }
 
 function lessonStepTitle(step) {
-  return { theory: "Теория", practice: "Практика", assessment: "Контрольная", remediation: "Отработка" }[step] || "Завершено";
+  return { theory: "Теория", practice: "Практика" }[step] || "Завершено";
 }
 
 function theoryDiagram(type) {
@@ -969,10 +937,8 @@ function renderCompletedTheoryCard(item) {
 }
 
 function renderTheoryActions(chapter, reviewingTheory, lesson) {
-  const returnLabel = lesson.current_step === "remediation" ? "Вернуться к отработке →" : "Вернуться к практике →";
-  const completedLabel = lesson.current_step === "remediation"
-    ? `Выполнено ${lesson.remediation.attempted_tasks} из ${lesson.remediation.total_tasks} заданий отработки`
-    : `Выполнено ${lesson.practice.attempted_tasks} из ${lesson.practice.total_tasks} задач`;
+  const returnLabel = "Вернуться к практике →";
+  const completedLabel = `Выполнено ${lesson.practice.attempted_tasks} из ${lesson.practice.total_tasks} задач`;
   if (!chapter.sections?.length) {
     return `<div class="lesson-action"><span>${reviewingTheory ? completedLabel : `${chapter.read_minutes} минут на изучение`}</span><button class="primary-button" ${reviewingTheory ? "data-return-practice" : 'id="complete-theory"'}>${reviewingTheory ? returnLabel : "Перейти к практике →"}</button></div>`;
   }
@@ -1033,88 +999,6 @@ function renderPracticeStep(lesson) {
   </article>`;
 }
 
-function renderAssessmentStep(lesson) {
-  const task = lesson.assessment_task;
-  const assessment = lesson.assessment;
-  const progress = assessment.attempted_tasks / assessment.total_tasks * 100;
-  return `<article class="lesson-panel lesson-task assessment-workspace">
-    <div class="assessment-banner"><div><small>${assessment.retake ? `Попытка ${assessment.cycle}` : "Финал блока"}</small><b>${assessment.retake ? "Повторная контрольная" : `Контрольная: ${escapeHtml(lesson.topic.short_title)}`}</b></div><strong>Нужно ${assessment.pass_percent}%</strong></div>
-    <p class="assessment-rule">${assessment.total_tasks} новых заданий по всем пройденным подтемам. Результат появится после последнего ответа.</p>
-    <div class="practice-toolbar"><div><span>Задание ${assessment.current_task_number} из ${assessment.total_tasks}</span><i><b style="width:${progress}%"></b></i></div><small>Ответы нельзя изменить после отправки</small></div>
-    ${renderLearningTask(task, "assessment-answer-form", "assessment-answer", "Сохранить ответ")}
-  </article>`;
-}
-
-function assessmentAnalysisKey(lesson) {
-  return `${lesson.unit_id}:${lesson.assessment.cycle}`;
-}
-
-function renderAIAssessmentAnswer(answer) {
-  if (!answer) return "";
-  return `<article class="ai-assessment-answer">
-    <span>Анализ проблемных подтем</span><h4>${escapeHtml(answer.diagnosis)}</h4>
-    <div><b>На чём основан вывод</b><ul>${answer.evidence.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></div>
-    <div><b>Порядок повторения</b><ol>${answer.focus_order.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></div>
-    <div><b>Как пройти отработку</b><ol>${answer.study_plan.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></div>
-    <p>${escapeHtml(answer.encouragement)}</p><small>${escapeHtml(answer.confidence_note)}</small>
-  </article>`;
-}
-
-function renderAIAssessmentPanel(lesson) {
-  const answer = state.aiAssessmentAnalyses[assessmentAnalysisKey(lesson)];
-  const disabled = aiReady() ? "" : "disabled";
-  return `<section class="ai-tutor-card assessment-ai-card">
-    <header><div><span class="ai-kicker">ИИ-анализ контрольной</span><h3>Почему возникли ошибки</h3><p>ИИ объясняет уже вычисленные проблемные подтемы и не меняет число заданий.</p></div>${renderAIModelBadge()}</header>
-    ${aiReady() ? "" : '<p class="ai-setup-note">Отработка уже составлена по ошибкам. Для текстового анализа подключите API-ключ ИИ.</p>'}
-    <button class="secondary-button" type="button" id="ai-assessment-button" ${disabled}>${answer ? "Обновить анализ" : "Проанализировать ошибки"}</button>
-    <div class="ai-response-slot" id="ai-assessment-response" aria-live="polite">${renderAIAssessmentAnswer(answer)}</div>
-  </section>`;
-}
-
-async function requestAIAssessmentAnalysis() {
-  if (!aiReady() || state.lesson.current_step !== "remediation") return;
-  const button = document.querySelector("#ai-assessment-button");
-  const responseSlot = document.querySelector("#ai-assessment-response");
-  if (!button || !responseSlot) return;
-  button.disabled = true;
-  button.textContent = "Анализирую…";
-  responseSlot.innerHTML = renderAIRequestState("loading", "Сопоставляю ошибки с подтемами контрольной.");
-  try {
-    const answer = await aiRequest("/analyze-assessment", {
-      method: "POST",
-      body: JSON.stringify({ session_id: sessionId, lesson_unit_id: state.lesson.unit_id }),
-    });
-    state.aiAssessmentAnalyses[assessmentAnalysisKey(state.lesson)] = answer;
-    responseSlot.innerHTML = renderAIAssessmentAnswer(answer);
-    button.textContent = "Обновить анализ";
-  } catch (error) {
-    responseSlot.innerHTML = renderAIRequestState("error", error.message);
-    button.textContent = "Повторить анализ";
-    toast(error.message);
-  } finally {
-    button.disabled = false;
-  }
-}
-
-function bindAIAssessmentControls() {
-  document.querySelector("#ai-assessment-button")?.addEventListener("click", requestAIAssessmentAnalysis);
-}
-
-function renderRemediationStep(lesson) {
-  const task = lesson.remediation_task;
-  const remediation = lesson.remediation;
-  const weakList = remediation.weak_subtopics.map((item) => `<li><div><b>${escapeHtml(item.title)}</b><span>${item.errors} ${item.errors === 1 ? "ошибка" : "ошибки"}</span></div><strong>${item.assigned_tasks} заданий</strong></li>`).join("");
-  const progress = remediation.attempted_tasks / remediation.total_tasks * 100;
-  return `<article class="lesson-panel lesson-task remediation-workspace">
-    <div class="assessment-result failed"><div><small>Контрольная не пройдена</small><b>${lesson.assessment.score_percent}%</b></div><p>Для перехода нужно ${lesson.assessment.pass_percent}%. После отработки откроется новая контрольная с другими заданиями.</p></div>
-    <section class="weak-subtopics"><h3>Что нужно отработать</h3><ul>${weakList}</ul></section>
-    ${renderAIAssessmentPanel(lesson)}
-    <div class="practice-toolbar"><div><span>Отработка: задание ${remediation.current_task_number} из ${remediation.total_tasks}</span><i><b style="width:${progress}%"></b></i></div><button class="secondary-button" id="review-theory">← Вернуться к теории</button></div>
-    <div class="remediation-topic"><span>Подтема</span><b>${escapeHtml(task.remediation_subtopic_title)}</b></div>
-    ${renderLearningTask(task, "remediation-answer-form", "remediation-answer", "Проверить")}
-  </article>`;
-}
-
 function renderLessons() {
   const lesson = state.lesson;
   if (lesson.status === "completed") {
@@ -1127,11 +1011,11 @@ function renderLessons() {
   syncTheoryPages(lesson);
 
   const currentStep = lesson.current_step;
-  const reviewingTheory = ["practice", "remediation"].includes(currentStep) && state.lessonView === "theory";
+  const reviewingTheory = currentStep === "practice" && state.lessonView === "theory";
   const isTheory = currentStep === "theory" || reviewingTheory;
   let stepContent;
   if (isTheory) {
-    const returnText = currentStep === "remediation" ? "Вернуться к отработке →" : "Вернуться к задаче →";
+    const returnText = "Вернуться к задаче →";
     stepContent = `<article class="lesson-panel lesson-theory">
       ${reviewingTheory ? `<div class="review-theory-banner"><b>Повторение теории</b><span>Прогресс текущего шага сохранён. Можно открыть любую подтему.</span><button class="secondary-button" type="button" data-return-practice>${returnText}</button></div>` : ""}
       <p class="eyebrow">${lesson.theory.eyebrow}</p>
@@ -1142,12 +1026,8 @@ function renderLessons() {
       ${!lesson.theory.sections?.length || state.lessonTheoryPage === lesson.theory.sections.length - 1 ? `<aside class="theory-tip"><b>Совет перед практикой</b>${lesson.theory.tip}</aside>` : ""}
       ${renderTheoryActions(lesson.theory, reviewingTheory, lesson)}
     </article>`;
-  } else if (currentStep === "practice") {
-    stepContent = renderPracticeStep(lesson);
-  } else if (currentStep === "assessment") {
-    stepContent = renderAssessmentStep(lesson);
   } else {
-    stepContent = renderRemediationStep(lesson);
+    stepContent = renderPracticeStep(lesson);
   }
 
   view.innerHTML = `${pageHeader("Текущий урок", lesson.topic.short_title, `${lesson.stage.number}-й этап · ${lesson.stage.title}`,
@@ -1155,7 +1035,7 @@ function renderLessons() {
     <section class="lesson-shell">
       <div class="lesson-context"><span>Тема ${lesson.position} из ${lesson.total_units}</span><b>${lesson.topic.title}</b><small>${lesson.topic.description}</small></div>
       <div class="lesson-progress"><i style="width:${lesson.overall_progress}%"></i></div>
-      <ol class="lesson-stepper three-steps">${lesson.steps.map((step, index) => `<li class="lesson-step ${step.state}"><span>${step.state === "completed" ? "✓" : index + 1}</span><div><b>${step.label}</b><small>${step.state === "current" ? (currentStep === "remediation" && step.id === "assessment" ? "Идёт отработка" : "Текущий шаг") : step.state === "completed" ? "Готово" : "Сначала предыдущий шаг"}</small></div></li>`).join("")}</ol>
+      <ol class="lesson-stepper">${lesson.steps.map((step, index) => `<li class="lesson-step ${step.state}"><span>${step.state === "completed" ? "✓" : index + 1}</span><div><b>${step.label}</b><small>${step.state === "current" ? "Текущий шаг" : step.state === "completed" ? "Готово" : "Сначала предыдущий шаг"}</small></div></li>`).join("")}</ol>
       <div class="lesson-current-label"><span>${reviewingTheory ? "Можно вернуться" : "Сейчас"}</span><b>${reviewingTheory ? "Повторение теории" : lessonStepTitle(currentStep)}</b></div>
       ${stepContent}
     </section>`;
@@ -1172,12 +1052,6 @@ function renderLessons() {
     document.querySelector("#review-theory")?.addEventListener("click", reviewCurrentTheory);
     bindAIHintControls();
     document.querySelector("#lesson-answer-form")?.addEventListener("submit", submitLessonAnswer);
-  } else if (currentStep === "assessment") {
-    document.querySelector("#assessment-answer-form")?.addEventListener("submit", submitAssessmentAnswer);
-  } else if (currentStep === "remediation") {
-    document.querySelector("#review-theory")?.addEventListener("click", reviewCurrentTheory);
-    bindAIAssessmentControls();
-    document.querySelector("#remediation-answer-form")?.addEventListener("submit", submitRemediationAnswer);
   }
 }
 
@@ -1300,7 +1174,7 @@ async function submitLessonAnswer(event) {
       <b>${result.is_correct ? correctTitle : incorrectTitle}</b>
       ${result.is_correct ? "" : `Верный ответ: ${escapeHtml(result.correct_answer)}.<br>`}${result.explanation}<br><span style="opacity:.78">${result.recommendation}</span>
       ${result.is_correct ? "" : renderAIErrorAction(result.attempt.id)}
-      <div class="feedback-action"><button class="primary-button" id="lesson-next">${result.practice_complete ? "Перейти к контрольной" : `Следующая задача по теме «${escapeHtml(practiceTopic)}»`} →</button>${result.practice_complete ? '<button class="secondary-button" id="lesson-homework">Открыть ДЗ отдельно</button>' : ""}</div>
+      <div class="feedback-action"><button class="primary-button" id="lesson-next">${result.practice_complete ? "Перейти к следующему уроку" : `Следующая задача по теме «${escapeHtml(practiceTopic)}»`} →</button>${result.practice_complete ? '<button class="secondary-button" id="lesson-homework">Открыть ДЗ отдельно</button>' : ""}</div>
     </div>`;
     form.classList.add("hidden");
     if (!result.is_correct) bindAIErrorAnalysis();
@@ -1313,101 +1187,6 @@ async function submitLessonAnswer(event) {
       button.disabled = false;
       button.textContent = "Проверить";
     }
-  }
-}
-
-async function submitAssessmentAnswer(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const button = form.querySelector("button");
-  const answer = new FormData(form).get("answer");
-  const lessonBefore = state.lesson;
-  const task = lessonBefore.assessment_task;
-  const taskNumber = lessonBefore.assessment.current_task_number;
-  const taskTotal = lessonBefore.assessment.total_tasks;
-  button.disabled = true;
-  button.textContent = "Сохраняем…";
-  try {
-    const result = await request("/attempts", {
-      method: "POST",
-      body: JSON.stringify({
-        session_id: sessionId,
-        task_id: task.id,
-        answer,
-        duration_seconds: 120,
-        mode: "assessment",
-        lesson_unit_id: lessonBefore.unit_id,
-        lesson_task_key: task.lesson_task_key,
-      }),
-    });
-    await refreshLearningData();
-    state.lessonView = null;
-    if (result.assessment_finished && !result.assessment_outcome.passed) {
-      renderLessons();
-      toast(`Результат ${result.assessment_outcome.score_percent}%. Назначена отработка.`);
-      if (aiReady()) requestAIAssessmentAnalysis();
-      return;
-    }
-    const finished = result.assessment_finished;
-    const feedbackClass = finished ? "correct" : "neutral";
-    const title = finished
-      ? `Контрольная пройдена: ${result.assessment_outcome.score_percent}%`
-      : `Ответ ${taskNumber} из ${taskTotal} сохранён`;
-    document.querySelector("#feedback-slot").innerHTML = `<div class="feedback ${feedbackClass}">
-      <b>${title}</b><span>${escapeHtml(result.recommendation)}</span>
-      <div class="feedback-action"><button class="primary-button" id="assessment-next">${finished ? "Перейти к следующему блоку" : "Следующее задание"} →</button></div>
-    </div>`;
-    form.classList.add("hidden");
-    document.querySelector("#assessment-next").addEventListener("click", renderLessons);
-  } catch (error) {
-    button.disabled = false;
-    button.textContent = "Сохранить ответ";
-    toast(error.message);
-  }
-}
-
-async function submitRemediationAnswer(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const button = form.querySelector("button");
-  const answer = new FormData(form).get("answer");
-  const lessonBefore = state.lesson;
-  const task = lessonBefore.remediation_task;
-  const taskNumber = lessonBefore.remediation.current_task_number;
-  const taskTotal = lessonBefore.remediation.total_tasks;
-  button.disabled = true;
-  button.textContent = "Проверяем…";
-  try {
-    const result = await request("/attempts", {
-      method: "POST",
-      body: JSON.stringify({
-        session_id: sessionId,
-        task_id: task.id,
-        answer,
-        duration_seconds: 120,
-        mode: "remediation",
-        lesson_unit_id: lessonBefore.unit_id,
-        lesson_task_key: task.lesson_task_key,
-      }),
-    });
-    await refreshLearningData();
-    state.lessonView = null;
-    const title = result.remediation_complete
-      ? "Отработка завершена"
-      : result.is_correct
-        ? `Верно — задание ${taskNumber} из ${taskTotal}`
-        : `Разберите решение — задание ${taskNumber} из ${taskTotal}`;
-    document.querySelector("#feedback-slot").innerHTML = `<div class="feedback ${result.is_correct ? "correct" : "incorrect"}">
-      <b>${title}</b>
-      ${result.is_correct ? "" : `Верный ответ: ${escapeHtml(result.correct_answer)}.<br>`}${escapeHtml(result.explanation)}<br><span style="opacity:.78">${escapeHtml(result.recommendation)}</span>
-      <div class="feedback-action"><button class="primary-button" id="remediation-next">${result.remediation_complete ? "Повторить контрольную" : "Следующее задание"} →</button></div>
-    </div>`;
-    form.classList.add("hidden");
-    document.querySelector("#remediation-next").addEventListener("click", renderLessons);
-  } catch (error) {
-    button.disabled = false;
-    button.textContent = "Проверить";
-    toast(error.message);
   }
 }
 
@@ -1737,7 +1516,6 @@ function resetPrivateState() {
     aiTheoryAnswers: {},
     aiTheoryChecks: {},
     aiHints: {},
-    aiAssessmentAnalyses: {},
     dashboardSelectedDate: null,
     dashboardCalendarMonth: null,
   });

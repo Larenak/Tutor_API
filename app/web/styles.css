@@ -489,7 +489,7 @@ a { color: inherit; }
 .lesson-context small { color: var(--ink-soft); font-size: 10px; line-height: 1.5; }
 .lesson-progress { height: 6px; overflow: hidden; background: #deded7; }
 .lesson-progress i { display: block; height: 100%; border-radius: 0 5px 5px 0; background: var(--teal); transition: width .25s ease; }
-.lesson-stepper { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; padding: 0; list-style: none; }
+.lesson-stepper { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 18px 0; padding: 0; list-style: none; }
 .lesson-step { display: flex; align-items: center; gap: 10px; padding: 13px; border: 1px solid var(--line); border-radius: 12px; color: var(--ink-soft); background: var(--surface); }
 .lesson-step > span { display: grid; place-items: center; width: 29px; height: 29px; flex: 0 0 auto; border-radius: 50%; background: var(--surface-2); font-size: 10px; font-weight: 800; }
 .lesson-step b, .lesson-step small { display: block; }
@@ -962,7 +962,6 @@ button.roadmap-control:hover { transform: translateY(-2px); box-shadow: 0 9px 22
 .roadmap-control.passed { border-style: solid; border-color: #c7ddd7; background: var(--teal-soft); }
 .roadmap-control.passed .roadmap-control-icon { color: #fff; background: var(--teal); }
 
-.lesson-stepper.three-steps { grid-template-columns: repeat(3, 1fr); }
 .homework-shell { max-width: 920px; margin: 0 auto; }
 .homework-separation-note { margin-bottom: 18px; padding: 18px 20px; display: grid; grid-template-columns: 48px 1fr; gap: 14px; border: 1px solid #c6ddd8; border-radius: 14px; background: var(--teal-soft); }
 .homework-separation-note > span { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 12px; color: #fff; background: var(--teal); font-size: 11px; font-weight: 850; }

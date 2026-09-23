@@ -12,8 +12,6 @@ class AttemptCreate(BaseModel):
         "diagnostic",
         "practice",
         "homework",
-        "assessment",
-        "remediation",
     ] = "diagnostic"
     lesson_unit_id: str | None = Field(default=None, min_length=1, max_length=100)
     lesson_task_key: str | None = Field(default=None, min_length=1, max_length=140)

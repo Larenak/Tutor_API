@@ -9,13 +9,12 @@ function readStoredTokens() {
     const stored = JSON.parse(sessionStorage.getItem(AUTH_STORAGE_KEY) || "null");
     if (stored?.access_token && stored?.refresh_token) return stored;
   } catch {
-    sessionStorage.removeItem(AUTH_STORAGE_KEY);
+    try { sessionStorage.removeItem(AUTH_STORAGE_KEY); } catch { /* Storage may be unavailable. */ }
   }
   return null;
 }
 
 const storedTokens = readStoredTokens();
-let sessionId = "";
 
 const state = {
   role: "student",
@@ -24,6 +23,8 @@ const state = {
     refreshToken: storedTokens?.refresh_token || null,
     user: null,
     refreshPromise: null,
+    generation: 0,
+    busy: false,
   },
   page: "dashboard",
   overview: null,
@@ -64,54 +65,80 @@ function apiErrorMessage(payload) {
 function persistTokens(tokens) {
   state.auth.accessToken = tokens.access_token;
   state.auth.refreshToken = tokens.refresh_token;
-  sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+  try { sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token,
-  }));
+  })); } catch { /* Keep this session in memory if browser storage is blocked. */ }
 }
 
 function clearTokens() {
   state.auth.accessToken = null;
   state.auth.refreshToken = null;
-  sessionStorage.removeItem(AUTH_STORAGE_KEY);
+  try { sessionStorage.removeItem(AUTH_STORAGE_KEY); } catch { /* Storage may be unavailable. */ }
+}
+
+function assertCurrentSession(generation) {
+  if (generation !== state.auth.generation) {
+    const error = new Error("Запрос относится к завершённой сессии.");
+    error.silent = true;
+    throw error;
+  }
 }
 
 async function refreshTokens() {
   if (!state.auth.refreshToken) return false;
   if (state.auth.refreshPromise) return state.auth.refreshPromise;
-  state.auth.refreshPromise = (async () => {
+  const generation = state.auth.generation;
+  const refreshToken = state.auth.refreshToken;
+  const pending = (async () => {
     const response = await fetch(`${AUTH_API}/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: state.auth.refreshToken }),
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      signal: AbortSignal.timeout(15000),
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) return false;
+    assertCurrentSession(generation);
+    if (!response.ok || state.auth.refreshToken !== refreshToken) return false;
     persistTokens(payload.data);
     return true;
   })().catch(() => false).finally(() => {
-    state.auth.refreshPromise = null;
+    if (state.auth.refreshPromise === pending) state.auth.refreshPromise = null;
   });
-  return state.auth.refreshPromise;
+  state.auth.refreshPromise = pending;
+  return pending;
 }
 
 async function requestFrom(baseUrl, path, options = {}) {
+  const generation = state.auth.generation;
   const { skipAuth = false, retryAuth = true, ...fetchOptions } = options;
   const headers = { "Content-Type": "application/json", ...(fetchOptions.headers || {}) };
-  if (!skipAuth && state.auth.accessToken) {
-    headers.Authorization = `Bearer ${state.auth.accessToken}`;
+  if (!skipAuth && state.auth.accessToken) headers.Authorization = `Bearer ${state.auth.accessToken}`;
+  let response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...fetchOptions, headers, signal: fetchOptions.signal || AbortSignal.timeout(35000),
+    });
+  } catch (error) {
+    assertCurrentSession(generation);
+    throw new Error(error.name === "TimeoutError"
+      ? "Сервер отвечает слишком долго. Попробуйте ещё раз."
+      : "Не удалось связаться с сервером. Проверьте подключение и повторите действие.");
   }
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...fetchOptions,
-    headers,
-  });
+  assertCurrentSession(generation);
   if (response.status === 401 && !skipAuth && retryAuth) {
-    if (await refreshTokens()) {
-      return requestFrom(baseUrl, path, { ...fetchOptions, retryAuth: false });
-    }
-    endLocalSession("Сессия завершилась. Войдите снова.");
+    const refreshed = await refreshTokens();
+    assertCurrentSession(generation);
+    if (refreshed) return requestFrom(baseUrl, path, { ...fetchOptions, retryAuth: false });
   }
   const payload = await response.json().catch(() => ({}));
+  assertCurrentSession(generation);
+  if (response.status === 401 && !skipAuth) {
+    endLocalSession("Сессия завершилась. Войдите снова.");
+    const error = new Error("Сессия завершилась. Войдите снова.");
+    error.silent = true;
+    throw error;
+  }
   if (!response.ok) throw new Error(apiErrorMessage(payload));
   return payload.data;
 }
@@ -129,22 +156,25 @@ function userRequest(path, options = {}) {
 }
 
 async function loadData() {
+  const generation = state.auth.generation;
   const [overview, tasks, completedTheory, analytics, roadmap, lesson, homework, dashboard, aiStatus] =
     await Promise.all([
       request("/overview"), request("/tasks"),
-      request(`/theory/completed?session_id=${sessionId}`),
-      request(`/analytics?session_id=${sessionId}`),
-      request(`/roadmap?session_id=${sessionId}`),
-      request(`/lesson/current?session_id=${sessionId}`),
-      request(`/homework/current?session_id=${sessionId}`),
-      request(`/dashboard?session_id=${sessionId}`),
+      request(`/theory/completed`),
+      request(`/analytics`),
+      request(`/roadmap`),
+      request(`/lesson/current`),
+      request(`/homework/current`),
+      request(`/dashboard`),
       aiRequest("/status").catch(() => ({ provider: "deepseek", model: "—", configured: false, capabilities: [] })),
     ]);
+  assertCurrentSession(generation);
   Object.assign(state, { overview, tasks, completedTheory, analytics, roadmap, lesson, homework, dashboard, aiStatus });
   if (state.role === "admin") {
     const [admin, adminUsers, adminTasks] = await Promise.all([
       request("/admin/dashboard"), request("/admin/users"), request("/admin/tasks"),
     ]);
+    assertCurrentSession(generation);
     Object.assign(state, { admin, adminUsers, adminTasks });
   } else {
     Object.assign(state, { admin: null, adminUsers: [], adminTasks: [] });
@@ -159,8 +189,24 @@ function escapeHtml(value) {
   }[char]));
 }
 
+function safeUrl(value) {
+  try {
+    const url = new URL(String(value), window.location.origin);
+    if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) return "#";
+    return escapeHtml(url.href);
+  } catch { return "#"; }
+}
+
+function safeColor(value) {
+  return /^#[0-9a-f]{6}$/i.test(String(value)) ? value : "#267468";
+}
+
+function scrollBehavior() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}
+
 function difficultyLabel(value) {
-  return { basic: "Базовый", standard: "Средний", advanced: "Повышенный", expert: "Сложный" }[value] || value;
+  return { basic: "Базовый", standard: "Средний", advanced: "Повышенный", expert: "Сложный" }[value] || escapeHtml(value);
 }
 
 function formatDate(value) {
@@ -177,11 +223,17 @@ function formatDateTime(value) {
   return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
 
+function attemptCount(value) {
+  const word = { one: "попытка", few: "попытки", many: "попыток", other: "попытки" }[new Intl.PluralRules("ru").select(value)];
+  return `${escapeHtml(value)} ${word}`;
+}
+
 function percent(value) {
   return value === null || value === undefined ? "—" : `${value}%`;
 }
 
 function toast(message) {
+  if (message === "Запрос относится к завершённой сессии." || message === "Сессия завершилась. Войдите снова.") return;
   const region = document.querySelector("#toast-region");
   const item = document.createElement("div");
   item.className = "toast";
@@ -190,45 +242,11 @@ function toast(message) {
   setTimeout(() => item.remove(), 3200);
 }
 
-function pageHeader(eyebrow, title, description, action = "") {
+function pageHeader(title, description = "", action = "") {
   return `<header class="page-header">
-    <div><p class="eyebrow">${eyebrow}</p><h1>${title}</h1>${description ? `<p>${description}</p>` : ""}</div>
+    <div><h1>${escapeHtml(title)}</h1>${description ? `<p>${escapeHtml(description)}</p>` : ""}</div>
     ${action ? `<div class="header-action">${action}</div>` : ""}
   </header>`;
-}
-
-function topicCard(topic) {
-  const metric = state.analytics.topics.find((item) => item.topic_id === topic.id);
-  const symbols = { geometry: "△", vectors: "→", probability: "P", equations: "x", functions: "f", calculus: "∫", applied: "%", number_theory: "№" };
-  const lessonTopic = state.roadmap.stages.flatMap((stage) => stage.topics).find((item) => item.id === topic.id);
-  const lessonLabel = lessonTopic?.lesson_state === "completed" ? "Тема пройдена" : lessonTopic?.lesson_state === "current" ? "Продолжить занятие" : "Откроется по маршруту";
-  return `<article class="topic-card" style="--topic-color:${topic.accent}">
-    <div class="topic-top"><span class="topic-icon">${symbols[topic.id]}</span><span class="topic-score">${percent(metric.mastery)}</span></div>
-    <h3>${topic.short_title}</h3><p>${topic.description}</p>
-    <div class="mini-track"><i style="width:${metric.mastery ?? 0}%"></i></div>
-    <div class="content-links"><a href="#lessons" data-roadmap-topic="${topic.id}">${lessonLabel}</a></div>
-  </article>`;
-}
-
-function renderForecastCard(prediction) {
-  const coverage = Math.round(prediction.covered_task_types / prediction.required_task_types * 100);
-  if (prediction.available) {
-    return `<aside class="forecast-card">
-      <div class="card-kicker"><span>Полная диагностика</span><span class="model-badge">реальные ответы</span></div>
-      <div class="forecast-number">${prediction.predicted_test_score}<small> / ${prediction.max_test_score} вторичных</small></div>
-      <div class="forecast-range">Пройдены все ${prediction.required_task_types} типов заданий</div>
-      <div class="forecast-track"><i style="width:100%"></i><b style="left:calc(100% - 8px)"></b></div>
-      <p class="forecast-note">${prediction.basis}<br>${prediction.test_score_note}</p>
-    </aside>`;
-  }
-  const missing = prediction.missing_task_numbers.slice(0, 8).join(", ");
-  return `<aside class="forecast-card">
-    <div class="card-kicker"><span>Результат диагностики</span><span class="model-badge">нет данных</span></div>
-    <div class="forecast-number">—</div>
-    <div class="forecast-range">Пройдено ${prediction.covered_task_types} из ${prediction.required_task_types} типов</div>
-    <div class="forecast-track"><i style="width:${coverage}%"></i><b style="left:calc(${coverage}% - 8px)"></b></div>
-    <p class="forecast-note">${prediction.basis}${missing ? `<br>Остались номера: ${missing}${prediction.missing_task_numbers.length > 8 ? "…" : ""}` : ""}</p>
-  </aside>`;
 }
 
 function localDate(value) {
@@ -269,26 +287,25 @@ function renderRoadmapLesson(item, subtopic, index) {
     : `aria-label="Урок ${escapeHtml(subtopic.title)}: ${statusLabels[lessonState].toLowerCase()}"`;
   const footer = canOpen
     ? `<span class="lesson-window-action">Открыть урок <b aria-hidden="true">→</b></span>`
-    : `<span class="lesson-window-action muted">${lessonState === "locked" ? "Откроется по порядку" : "Урок завершён"}</span>`;
+    : "";
 
   return `<${tag} class="lesson-window ${lessonState}" ${attributes}>
     <span class="lesson-window-top"><span class="lesson-number">Урок ${String(subtopic.order).padStart(2, "0")}</span>${status}</span>
     <h3>${escapeHtml(subtopic.title)}</h3>
-    <p>${escapeHtml(subtopic.description)}</p>
-    <span class="lesson-window-progress"><span><b>${subtopic.progress}%</b> пройдено</span><i role="progressbar" aria-label="Прогресс урока ${escapeHtml(subtopic.title)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${subtopic.progress}"><b style="width:${subtopic.progress}%"></b></i></span>
+    ${lessonState === "current" || lessonState === "available" ? `<span class="lesson-window-progress"><span><b>${escapeHtml(subtopic.progress)}%</b></span><i role="progressbar" aria-label="Прогресс урока ${escapeHtml(subtopic.title)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${escapeHtml(subtopic.progress)}"><b style="width:${escapeHtml(subtopic.progress)}%"></b></i></span>` : ""}
     ${footer}
   </${tag}>`;
 }
 
 function renderRoadmapTopic(item) {
   const taskNumbers = item.task_numbers.map((number) => `<span>№${number}</span>`).join("");
-  return `<section class="roadmap-topic-section ${item.lesson_state}" aria-labelledby="roadmap-topic-${item.position}">
+  return `<section class="roadmap-topic-section ${escapeHtml(item.lesson_state)}" aria-labelledby="roadmap-topic-${escapeHtml(item.position)}">
     <header class="roadmap-topic-header">
       <div class="roadmap-topic-heading">
         <span class="roadmap-topic-position">${item.lesson_state === "completed" ? "✓" : item.lesson_state === "upcoming" ? "🔒" : String(item.position).padStart(2, "0")}</span>
-        <div><h2 id="roadmap-topic-${item.position}">${escapeHtml(item.topic.short_title)}</h2></div>
+        <div><h2 id="roadmap-topic-${escapeHtml(item.position)}">${escapeHtml(item.topic.short_title)}</h2></div>
       </div>
-      <div class="roadmap-topic-progress"><span><b>${item.progress}%</b> темы</span><i role="progressbar" aria-label="Прогресс темы ${escapeHtml(item.topic.short_title)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${item.progress}"><b style="width:${item.progress}%"></b></i></div>
+      <div class="roadmap-topic-progress"><span><b>${escapeHtml(item.progress)}%</b> темы</span><i role="progressbar" aria-label="Прогресс темы ${escapeHtml(item.topic.short_title)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${escapeHtml(item.progress)}"><b style="width:${escapeHtml(item.progress)}%"></b></i></div>
     </header>
     <div class="roadmap-topic-info"><div class="roadmap-task-numbers" aria-label="Задания ЕГЭ">${taskNumbers}</div></div>
     <div class="lesson-window-grid">${item.subtopics.map((subtopic, index) => renderRoadmapLesson(item, subtopic, index)).join("")}</div>
@@ -325,18 +342,18 @@ function renderDashboardCalendar(data) {
 function renderLessonPlanCard(lesson) {
   if (!lesson) return `<article class="day-plan-card empty"><span class="agenda-kind">Урок</span><h3>Курс пройден</h3><button class="secondary-button" data-go="roadmap">Посмотреть роадмап</button></article>`;
   return `<article class="day-plan-card lesson">
-    <div class="day-plan-card-top"><span class="agenda-kind">Текущий урок</span><span>${lesson.estimated_minutes} мин</span></div>
+    <div class="day-plan-card-top"><span class="agenda-kind">Текущий урок</span><span>${escapeHtml(lesson.estimated_minutes)} мин</span></div>
     <h3>${escapeHtml(lesson.title)}</h3>
-    <div class="lesson-progress"><div><span>Прогресс урока</span><b>${lesson.progress}%</b></div><i role="progressbar" aria-label="Прогресс урока ${escapeHtml(lesson.title)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${lesson.progress}"><b style="width:${lesson.progress}%"></b></i></div>
-    <div class="day-plan-card-footer"><span>${escapeHtml(lesson.step_label)} · до 100%</span><button class="primary-button" data-go="lessons">Продолжить урок →</button></div>
+    <div class="lesson-progress"><div><span>Прогресс урока</span><b>${escapeHtml(lesson.progress)}%</b></div><i role="progressbar" aria-label="Прогресс урока ${escapeHtml(lesson.title)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${escapeHtml(lesson.progress)}"><b style="width:${escapeHtml(lesson.progress)}%"></b></i></div>
+    <div class="day-plan-card-footer"><span>${escapeHtml(lesson.step_label)}</span><button class="primary-button" data-go="lessons">Продолжить урок →</button></div>
   </article>`;
 }
 
 function renderTodayPlan(data) {
   const homework = data.today.homework;
   const homeworkCard = homework
-    ? `<article class="day-plan-card homework"><div class="day-plan-card-top"><span class="agenda-kind">Домашнее задание</span><span>до ${formatDate(homework.due_date)}</span></div><h3>${escapeHtml(homework.title)}</h3><div class="lesson-progress"><div><span>Выполнено</span><b>${homework.progress}%</b></div><i role="progressbar" aria-label="Прогресс домашнего задания" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${homework.progress}"><b style="width:${homework.progress}%"></b></i></div><div class="day-plan-card-footer"><span>${homework.estimated_minutes} мин самостоятельно</span><button class="secondary-button" data-go="homework">Открыть ДЗ →</button></div></article>`
-    : `<article class="day-plan-card homework empty"><span class="agenda-kind">Домашнее задание</span><h3>Пока не назначено</h3><button class="secondary-button" data-go="homework">Раздел ДЗ</button></article>`;
+    ? `<article class="day-plan-card homework"><div class="day-plan-card-top"><span class="agenda-kind">Домашнее задание</span><span>до ${formatDate(homework.due_date)}</span></div><h3>${escapeHtml(homework.title)}</h3><div class="lesson-progress"><div><span>Выполнено</span><b>${escapeHtml(homework.progress)}%</b></div><i role="progressbar" aria-label="Прогресс домашнего задания" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${escapeHtml(homework.progress)}"><b style="width:${escapeHtml(homework.progress)}%"></b></i></div><div class="day-plan-card-footer"><span>${escapeHtml(homework.estimated_minutes)} мин</span><button class="secondary-button" data-go="homework">Открыть ДЗ →</button></div></article>`
+    : `<article class="day-plan-card homework empty"><span class="agenda-kind">Домашнее задание</span><h3>Пока не назначено</h3></article>`;
   const reviews = data.today.reviews.map((item) => `<article class="agenda-row review"><span>Повторение</span><div><b>${escapeHtml(item.title)}</b><small>${escapeHtml(item.action)}</small></div><button class="schedule-arrow" data-go="lessons" aria-label="Открыть повторение">→</button></article>`).join("");
   return `<div class="day-plan-cards">${renderLessonPlanCard(data.today.lesson)}${homeworkCard}${reviews}</div>`;
 }
@@ -344,8 +361,8 @@ function renderTodayPlan(data) {
 function renderScheduledPlan(data, selectedDate) {
   const labels = { lesson: "Урок", homework: "Домашнее задание", review: "Повторение" };
   const items = data.schedule.filter((item) => item.date === selectedDate);
-  if (!items.length) return '<div class="selected-day-empty"><span>Свободный день</span><p>На эту дату в текущем роадмапе ничего не запланировано.</p></div>';
-  return `<div class="agenda-list">${items.map((item) => `<article class="agenda-row ${item.kind}"><span>${labels[item.kind]}</span><div><b>${escapeHtml(item.title)}</b><small>${escapeHtml(item.detail)}</small>${Number.isInteger(item.progress) ? `<i><b style="width:${item.progress}%"></b></i>` : ""}</div><button class="schedule-arrow" data-go="${item.kind === "homework" ? "homework" : "lessons"}" aria-label="Открыть ${labels[item.kind].toLowerCase()}">→</button></article>`).join("")}</div>`;
+  if (!items.length) return '<div class="selected-day-empty"><span>Нет занятий</span></div>';
+  return `<div class="agenda-list">${items.map((item) => `<article class="agenda-row ${escapeHtml(item.kind)}"><span>${labels[item.kind]}</span><div><b>${escapeHtml(item.title)}</b><small>${escapeHtml(item.detail)}</small>${Number.isInteger(item.progress) ? `<i><b style="width:${escapeHtml(item.progress)}%"></b></i>` : ""}</div><button class="schedule-arrow" data-go="${item.kind === "homework" ? "homework" : "lessons"}" aria-label="Открыть ${labels[item.kind].toLowerCase()}">→</button></article>`).join("")}</div>`;
 }
 
 function renderDashboard() {
@@ -354,29 +371,32 @@ function renderDashboard() {
   const selectedDate = state.dashboardSelectedDate || data.date;
   const isToday = selectedDate === data.date;
   const score = metrics.prediction_available ? metrics.expected_test_score : "—";
-  view.innerHTML = `${pageHeader("Главная", "Учебный маршрут", "")}
+  view.innerHTML = `${pageHeader("Учебный маршрут", "")}
     <section class="section dashboard-calendar-section">
       <div class="section-heading"><div><h2>Расписание</h2></div>${isToday ? "" : '<button class="secondary-button compact-button" data-calendar-today>Сегодня</button>'}</div>
       <div class="calendar-layout">${renderDashboardCalendar(data)}
-        <div class="selected-day-plan"><div class="selected-day-heading"><div><span>${isToday ? "План на сегодня" : "Выбранный день"}</span><h3>${formatLongDate(selectedDate)}</h3></div></div>
+        <div class="selected-day-plan"><div class="selected-day-heading"><div><h3>${formatLongDate(selectedDate)}</h3></div></div>
           ${isToday ? renderTodayPlan(data) : renderScheduledPlan(data, selectedDate)}
         </div>
       </div>
     </section>
 
     <section class="dashboard-overview" aria-label="Общие сведения об обучении">
-      <article><span>Ожидаемый балл ЕГЭ</span><b>${score}<small> / ${metrics.max_test_score}</small></b></article>
+      ${metrics.prediction_available ? `<article><span>Прогноз ЕГЭ</span><b>${score}<small> / ${metrics.max_test_score}</small></b></article>` : ""}
       <article><span>Серия занятий</span><b>${metrics.streak_days}<small> дн.</small></b></article>
     </section>`;
 
   document.querySelectorAll("[data-calendar-date]").forEach((button) => button.addEventListener("click", () => {
     state.dashboardSelectedDate = button.dataset.calendarDate;
     renderDashboard();
+    document.querySelector(`[data-calendar-date="${state.dashboardSelectedDate}"]`)?.focus({ preventScroll: true });
   }));
   document.querySelectorAll("[data-calendar-shift]").forEach((button) => button.addEventListener("click", () => {
     state.dashboardCalendarMonth = shiftCalendarMonth(state.dashboardCalendarMonth, Number(button.dataset.calendarShift));
+    const shift = button.dataset.calendarShift;
     state.dashboardSelectedDate = state.dashboardCalendarMonth.slice(0, 7) === data.date.slice(0, 7) ? data.date : state.dashboardCalendarMonth;
     renderDashboard();
+    document.querySelector(`[data-calendar-shift="${shift}"]`)?.focus({ preventScroll: true });
   }));
   document.querySelector("[data-calendar-today]")?.addEventListener("click", () => {
     state.dashboardSelectedDate = data.date;
@@ -390,9 +410,9 @@ function renderRoadmap() {
   const roadmap = state.roadmap;
   const completedLessons = roadmap.lesson_order.flatMap((item) => item.subtopics).filter((lesson) => lesson.state === "completed").length;
   const totalLessons = roadmap.lesson_order.reduce((total, item) => total + item.subtopics.length, 0);
-  view.innerHTML = `${pageHeader("Персональный роадмап", "Темы и уроки", `${completedLessons} из ${totalLessons} уроков пройдено`)}
+  view.innerHTML = `${pageHeader("Темы и уроки", `${completedLessons} из ${totalLessons} уроков пройдено`)}
     <section class="roadmap-course" aria-label="Учебный маршрут по темам">
-      <div class="roadmap-course-heading"><div><h2>Программа курса</h2><p>В каждой теме — теория по подтемам и практика для закрепления.</p></div></div>
+
       <div class="roadmap-topic-sections">${roadmap.lesson_order.map(renderRoadmapTopic).join("")}</div>
     </section>`;
   document.querySelectorAll("[data-roadmap-lesson]").forEach((button) => button.addEventListener("click", () => {
@@ -405,10 +425,6 @@ function renderRoadmap() {
     state.lessonView = state.lesson.current_step === "practice" ? "theory" : null;
     goTo("lessons");
   }));
-}
-
-function lessonStepTitle(step) {
-  return { theory: "Теория", practice: "Практика" }[step] || "Завершено";
 }
 
 function theoryDiagram(type) {
@@ -580,16 +596,6 @@ function aiReady() {
   return Boolean(state.aiStatus?.configured);
 }
 
-function aiProviderLabel() {
-  return { deepseek: "DeepSeek", openrouter: "OpenRouter" }[state.aiStatus?.provider]
-    || state.aiStatus?.provider
-    || "ИИ";
-}
-
-function renderAIModelBadge() {
-  return `<span class="ai-model-badge ${aiReady() ? "ready" : "waiting"}"><i></i>${aiReady() ? `${aiProviderLabel()} подключён` : "ожидает API-ключ"}</span>`;
-}
-
 function aiExplanationStyleLabel(style) {
   return {
     simple: "простыми словами",
@@ -601,8 +607,7 @@ function aiExplanationStyleLabel(style) {
 }
 
 function renderAIRequestState(kind, message) {
-  const title = kind === "loading" ? "Готовлю новый ответ…" : "Ответ не получен";
-  return `<div class="ai-request-state ${kind}" role="status"><b>${title}</b><span>${escapeHtml(message)}</span></div>`;
+  return `<div class="ai-request-state ${kind}" role="status">${kind === "loading" ? "Готовлю ответ…" : escapeHtml(message)}</div>`;
 }
 
 function renderAISelfCheckFeedback(answer, checkState) {
@@ -653,23 +658,22 @@ function renderAITheoryAnswer(answer, answerKey = "") {
         <button class="secondary-button" type="submit" ${checkResolved ? "disabled" : ""}>${checkResolved ? "Проверено" : "Проверить"}</button>
       </form>${renderAISelfCheckFeedback(answer, checkState)}` : ""}
     </div>
-    <small>${escapeHtml(aiProviderLabel())} · только текущий раздел теории</small>
   </article>`;
 }
 
 function renderAITheoryPanel(lesson) {
   const section = lesson.theory.sections?.[state.lessonTheoryPage];
   if (!section) return "";
-  const answerKey = `${lesson.unit_id}:${section.id}`;
+  const answerKey = `${escapeHtml(lesson.unit_id)}:${section.id}`;
   const answer = state.aiTheoryAnswers[answerKey];
   const disabled = aiReady() ? "" : "disabled";
+  if (!aiReady()) return "";
   return `<section class="ai-tutor-card theory-ai-card">
-    <header><div><span class="ai-kicker">ИИ-репетитор</span><h3>Спросить по этой странице</h3><p>Ответ ограничен разделом «${escapeHtml(section.title)}» и экзаменационной теорией урока.</p></div>${renderAIModelBadge()}</header>
+    <header><h3>ИИ-репетитор</h3></header>
     <form class="ai-question-form" id="ai-theory-form">
       <label for="ai-theory-question">Что осталось непонятно?</label>
       <div><input id="ai-theory-question" name="question" maxlength="500" placeholder="Например: объясни проще и приведи другой пример" ${disabled}><button class="secondary-button" type="submit" ${disabled}>Объяснить</button></div>
     </form>
-    ${aiReady() ? "" : '<p class="ai-setup-note">Интерфейс готов. После добавления <code>OPENROUTER_API_KEY</code> или <code>DEEPSEEK_API_KEY</code> в локальный .env кнопка станет активной.</p>'}
     <div class="ai-response-slot" id="ai-theory-response" aria-live="polite">${renderAITheoryAnswer(answer, answerKey)}</div>
   </section>`;
 }
@@ -694,13 +698,13 @@ async function requestAITheoryExplanation(event) {
     const answer = await aiRequest("/explain-theory", {
       method: "POST",
       body: JSON.stringify({
-        session_id: sessionId,
         lesson_unit_id: state.lesson.unit_id,
         theory_section_id: section.id,
         question,
       }),
     });
     state.aiTheoryAnswers[answerKey] = answer;
+    if (!responseSlot.isConnected) return;
     responseSlot.innerHTML = renderAITheoryAnswer(answer, answerKey);
     bindAISelfCheckForms();
   } catch (error) {
@@ -754,18 +758,18 @@ function bindAITheoryControls() {
 }
 
 function renderAIHintItems(hints) {
-  if (!hints.length) return '<p class="ai-empty-response">Начните с мягкой подсказки: ИИ направит мысль, но не выдаст ответ.</p>';
-  return hints.map((hint) => `<article class="ai-hint-item"><span>Подсказка ${hint.level}</span><b>${escapeHtml(hint.focus)}</b><p>${escapeHtml(hint.hint)}</p><small>${escapeHtml(hint.self_check)}</small></article>`).join("");
+  if (!hints.length) return "";
+  return hints.map((hint) => `<article class="ai-hint-item"><span>Подсказка ${escapeHtml(hint.level)}</span><b>${escapeHtml(hint.focus)}</b><p>${escapeHtml(hint.hint)}</p><small>${escapeHtml(hint.self_check)}</small></article>`).join("");
 }
 
 function renderAIHintPanel(lesson) {
+  if (!aiReady()) return "";
   const taskKey = lesson.practice_task.lesson_task_key;
   const hints = state.aiHints[taskKey] || [];
   const nextLevel = hints.length + 1;
   const disabled = !aiReady() || nextLevel > 3;
-  const buttonLabel = !aiReady() ? "Нужен API-ключ" : nextLevel > 3 ? "Все подсказки получены" : `Подсказка ${nextLevel} из 3`;
-  return `<section class="ai-tutor-card hint-ai-card">
-    <header><div><span class="ai-kicker">Помощь без готового ответа</span><h3>Застряли на шаге?</h3><p>Сначала вопрос-направление, затем правило и только потом первый вычислительный шаг.</p></div>${renderAIModelBadge()}</header>
+  const buttonLabel = !aiReady() ? "Подсказки временно недоступны" : nextLevel > 3 ? "Все подсказки получены" : `Подсказка ${nextLevel} из 3`;
+  return `<section class="ai-hint-control">
     <div class="ai-hint-list" id="ai-hint-list">${renderAIHintItems(hints)}</div>
     <button class="secondary-button ai-hint-button" id="ai-hint-button" type="button" ${disabled ? "disabled" : ""}>${buttonLabel}</button>
   </section>`;
@@ -783,13 +787,13 @@ async function requestAIHint() {
     const hint = await aiRequest("/hint", {
       method: "POST",
       body: JSON.stringify({
-        session_id: sessionId,
         lesson_unit_id: state.lesson.unit_id,
         lesson_task_key: task.lesson_task_key,
         level,
       }),
     });
     state.aiHints[task.lesson_task_key] = [...hints, hint];
+    if (!button.isConnected) return;
     document.querySelector("#ai-hint-list").innerHTML = renderAIHintItems(state.aiHints[task.lesson_task_key]);
     const nextLevel = level + 1;
     button.textContent = nextLevel > 3 ? "Все подсказки получены" : `Подсказка ${nextLevel} из 3`;
@@ -808,17 +812,17 @@ function bindAIHintControls() {
 function renderAIErrorAnswer(answer) {
   if (!answer) return "";
   return `<article class="ai-error-answer">
-    <span>AI-разбор фактической попытки</span><h4>${escapeHtml(answer.diagnosis)}</h4>
+    <h4>${escapeHtml(answer.diagnosis)}</h4>
     <dl><div><dt>На чём основан вывод</dt><dd>${escapeHtml(answer.evidence)}</dd></div><div><dt>Почему возникла ошибка</dt><dd>${escapeHtml(answer.explanation)}</dd></div><div><dt>Короткий микроурок</dt><dd>${escapeHtml(answer.micro_lesson)}</dd></div><div><dt>Следующее действие</dt><dd>${escapeHtml(answer.next_action)}</dd></div></dl>
     <small>${escapeHtml(answer.confidence_note)}</small>
   </article>`;
 }
 
 function renderAIErrorAction(attemptId) {
+  if (!aiReady()) return "";
   const disabled = aiReady() ? "" : "disabled";
   return `<section class="ai-error-control">
-    <div><b>Понять причину ошибки</b><span>${aiReady() ? "ИИ сопоставит ответ с решением и текущей теорией." : "AI-разбор станет доступен после подключения ключа."}</span></div>
-    <button class="secondary-button" type="button" data-ai-error="${escapeHtml(attemptId)}" ${disabled}>Разобрать с ИИ</button>
+    <button class="secondary-button" type="button" data-ai-error="${escapeHtml(attemptId)}" ${disabled}>${aiReady() ? "Разобрать с ИИ" : "ИИ-разбор временно недоступен"}</button>
     <div class="ai-response-slot" id="ai-error-response" aria-live="polite"></div>
   </section>`;
 }
@@ -831,7 +835,7 @@ async function requestAIErrorAnalysis(event) {
   try {
     const answer = await aiRequest("/analyze-error", {
       method: "POST",
-      body: JSON.stringify({ session_id: sessionId, attempt_id: attemptId }),
+      body: JSON.stringify({ attempt_id: attemptId }),
     });
     document.querySelector("#ai-error-response").innerHTML = renderAIErrorAnswer(answer);
     button.textContent = "Разбор готов";
@@ -851,28 +855,22 @@ function renderDetailedTheory(chapter) {
   const lastPage = chapter.sections.length - 1;
   const pageIndex = Math.min(Math.max(state.lessonTheoryPage, 0), lastPage);
   const section = chapter.sections[pageIndex];
-  const progress = Math.round(((pageIndex + 1) / chapter.sections.length) * 100);
-  const introduction = pageIndex === 0 ? `<section class="exam-scope">
-      <div><span>${escapeHtml(scope.label)}</span><h3>Что действительно проверяют</h3><p>${escapeHtml(scope.text)}</p></div>
-      <ul>${scope.skills.map((skill) => `<li>${escapeHtml(skill)}</li>`).join("")}</ul>
-    </section>` : "";
-  const review = pageIndex === lastPage ? `<section class="exam-pattern-section"><p class="eyebrow">Пять формулировок — один набор правил</p><h3>Как узнать тип задания</h3>
+  const introduction = pageIndex === 0 ? `<details class="exam-scope"><summary>${escapeHtml(scope.label)}</summary><p>${escapeHtml(scope.text)}</p><ul>${scope.skills.map((skill) => `<li>${escapeHtml(skill)}</li>`).join("")}</ul></details>` : "";
+  const review = pageIndex === lastPage ? `<section class="exam-pattern-section"><h3>Как узнать тип задания</h3>
       <div class="exam-pattern-grid">${chapter.exam_patterns.map((pattern, index) => `<article><span>0${index + 1}</span><b>${escapeHtml(pattern.title)}</b><p>${escapeHtml(pattern.method)}</p></article>`).join("")}</div>
     </section>
     <div class="theory-review-grid">
-      <section class="mistake-card"><p class="eyebrow">Типичные ошибки</p><h3>Где теряют балл</h3><ul>${chapter.mistakes.map((mistake) => `<li>${escapeHtml(mistake)}</li>`).join("")}</ul></section>
-      <section class="checklist-card"><p class="eyebrow">Перед ответом</p><h3>Проверка за 20 секунд</h3><ol>${chapter.checklist.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></section>
+      <section class="mistake-card"><h3>Где теряют балл</h3><ul>${chapter.mistakes.map((mistake) => `<li>${escapeHtml(mistake)}</li>`).join("")}</ul></section>
+      <section class="checklist-card"><h3>Проверка ответа</h3><ol>${chapter.checklist.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></section>
     </div>
     <footer class="theory-reference"><b>Основа конспекта</b><span>${escapeHtml(chapter.reference.title)} · ${escapeHtml(chapter.reference.sections)}</span><small>${escapeHtml(chapter.reference.note)}</small></footer>` : "";
 
   return `<div class="theory-page-status">
-      <div><span>Теория</span><b>Страница ${pageIndex + 1} из ${chapter.sections.length}</b></div>
-      <strong>${progress}%</strong>
-      <i aria-label="Прогресс теории: ${progress}%"><b style="width:${progress}%"></b></i>
+      <div><span>Теория</span><b>Страница ${pageIndex + 1} из ${escapeHtml(chapter.sections.length)}</b></div>
     </div>
     ${introduction}
     <div class="detailed-theory"><section class="theory-section" id="theory-section-${escapeHtml(section.id)}">
-      <header><span>${escapeHtml(section.number)}</span><div><p>Экзаменационная база</p><h3>${escapeHtml(section.title)}</h3></div></header>
+      <header><span>${escapeHtml(section.number)}</span><div><h3>${escapeHtml(section.title)}</h3></div></header>
       <div class="theory-section-layout ${section.diagram ? "with-diagram" : ""}">
         <div class="theory-section-copy"><p class="section-lead">${escapeHtml(section.lead)}</p>
           <ul class="explanation-list">${section.paragraphs.map((paragraph) => `<li>${escapeHtml(paragraph)}</li>`).join("")}</ul>
@@ -893,7 +891,7 @@ function renderLessonTheory(chapter) {
 
 function renderCompletedTheorySection(section) {
   return `<section class="theory-section" id="completed-theory-section-${escapeHtml(section.id)}">
-    <header><span>${escapeHtml(section.number)}</span><div><p>Экзаменационная база</p><h3>${escapeHtml(section.title)}</h3></div></header>
+    <header><span>${escapeHtml(section.number)}</span><div><h3>${escapeHtml(section.title)}</h3></div></header>
     <div class="theory-section-layout ${section.diagram ? "with-diagram" : ""}">
       <div class="theory-section-copy"><p class="section-lead">${escapeHtml(section.lead)}</p>
         <ul class="explanation-list">${section.paragraphs.map((paragraph) => `<li>${escapeHtml(paragraph)}</li>`).join("")}</ul>
@@ -908,16 +906,16 @@ function renderCompletedTheorySection(section) {
 
 function renderCompletedTheoryContent(chapter) {
   const scope = chapter.exam_scope
-    ? `<section class="exam-scope"><div><span>${escapeHtml(chapter.exam_scope.label)}</span><h3>Что действительно проверяют</h3><p>${escapeHtml(chapter.exam_scope.text)}</p></div><ul>${chapter.exam_scope.skills.map((skill) => `<li>${escapeHtml(skill)}</li>`).join("")}</ul></section>`
+    ? `<details class="exam-scope"><summary>${escapeHtml(chapter.exam_scope.label)}</summary><p>${escapeHtml(chapter.exam_scope.text)}</p><ul>${chapter.exam_scope.skills.map((skill) => `<li>${escapeHtml(skill)}</li>`).join("")}</ul></details>`
     : "";
   const lessonBlocks = chapter.sections?.length
     ? `<div class="detailed-theory completed-theory-blocks">${chapter.sections.map(renderCompletedTheorySection).join("")}</div>`
     : `<section class="completed-theory-key-points"><p class="eyebrow">Ключевые правила урока</p><ul class="formula-list">${chapter.key_points.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul></section>`;
   const patterns = chapter.exam_patterns?.length
-    ? `<section class="exam-pattern-section"><p class="eyebrow">Формулировки и методы</p><h3>Как узнать тип задания</h3><div class="exam-pattern-grid">${chapter.exam_patterns.map((pattern, index) => `<article><span>${String(index + 1).padStart(2, "0")}</span><b>${escapeHtml(pattern.title)}</b><p>${escapeHtml(pattern.method)}</p></article>`).join("")}</div></section>`
+    ? `<section class="exam-pattern-section"><h3>Как узнать тип задания</h3><div class="exam-pattern-grid">${chapter.exam_patterns.map((pattern, index) => `<article><span>${String(index + 1).padStart(2, "0")}</span><b>${escapeHtml(pattern.title)}</b><p>${escapeHtml(pattern.method)}</p></article>`).join("")}</div></section>`
     : "";
   const review = chapter.mistakes?.length && chapter.checklist?.length
-    ? `<div class="theory-review-grid"><section class="mistake-card"><p class="eyebrow">Типичные ошибки</p><h3>Где теряют балл</h3><ul>${chapter.mistakes.map((mistake) => `<li>${escapeHtml(mistake)}</li>`).join("")}</ul></section><section class="checklist-card"><p class="eyebrow">Перед ответом</p><h3>Проверка за 20 секунд</h3><ol>${chapter.checklist.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></section></div>`
+    ? `<div class="theory-review-grid"><section class="mistake-card"><h3>Где теряют балл</h3><ul>${chapter.mistakes.map((mistake) => `<li>${escapeHtml(mistake)}</li>`).join("")}</ul></section><section class="checklist-card"><h3>Проверка ответа</h3><ol>${chapter.checklist.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></section></div>`
     : "";
   const reference = chapter.reference
     ? `<footer class="theory-reference"><b>Основа конспекта</b><span>${escapeHtml(chapter.reference.title)} · ${escapeHtml(chapter.reference.sections)}</span><small>${escapeHtml(chapter.reference.note)}</small></footer>`
@@ -930,7 +928,7 @@ function renderCompletedTheoryCard(item) {
   return `<article class="completed-theory-chapter" id="completed-theory-${escapeHtml(chapter.id)}">
     <header class="completed-theory-heading">
       <span class="completed-theory-position">${String(item.position).padStart(2, "0")}</span>
-      <div class="completed-theory-title"><p class="eyebrow">${escapeHtml(chapter.eyebrow)}</p><h2>${escapeHtml(chapter.title)}</h2><p>${escapeHtml(chapter.summary)}</p></div>
+      <div class="completed-theory-title"><h2>${escapeHtml(chapter.title)}</h2><p>${escapeHtml(chapter.summary)}</p></div>
     </header>
     <div class="completed-theory-content">${renderCompletedTheoryContent(chapter)}</div>
   </article>`;
@@ -938,9 +936,9 @@ function renderCompletedTheoryCard(item) {
 
 function renderTheoryActions(chapter, reviewingTheory, lesson) {
   const returnLabel = "Вернуться к практике →";
-  const completedLabel = `Выполнено ${lesson.practice.attempted_tasks} из ${lesson.practice.total_tasks} задач`;
+  const completedLabel = `Выполнено ${escapeHtml(lesson.practice.attempted_tasks)} из ${escapeHtml(lesson.practice.total_tasks)} задач`;
   if (!chapter.sections?.length) {
-    return `<div class="lesson-action"><span>${reviewingTheory ? completedLabel : `${chapter.read_minutes} минут на изучение`}</span><button class="primary-button" ${reviewingTheory ? "data-return-practice" : 'id="complete-theory"'}>${reviewingTheory ? returnLabel : "Перейти к практике →"}</button></div>`;
+    return `<div class="lesson-action"><span>${reviewingTheory ? completedLabel : `${escapeHtml(chapter.read_minutes)} минут на изучение`}</span><button class="primary-button" ${reviewingTheory ? "data-return-practice" : 'id="complete-theory"'}>${reviewingTheory ? returnLabel : "Перейти к практике →"}</button></div>`;
   }
 
   const pageIndex = state.lessonTheoryPage;
@@ -965,7 +963,8 @@ function openTheoryPage(pageIndex) {
   const target = Math.min(Math.max(pageIndex, 0), lastPage);
   state.lessonTheoryPage = target;
   renderLessons();
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  view.focus({ preventScroll: true });
+  window.scrollTo({ top: 0, behavior: scrollBehavior() });
 }
 
 function bindTheoryPageControls() {
@@ -974,36 +973,35 @@ function bindTheoryPageControls() {
 }
 
 function renderLearningTask(task, formId, inputId, buttonLabel) {
-  return `<div class="task-meta"><span class="tag accent">Задание ${task.exam_number}</span><span class="tag">${difficultyLabel(task.difficulty)}</span><span class="tag">Код ${escapeHtml(task.codifier_code)}</span></div>
+  return `<div class="task-meta"><span class="tag accent">Задание ${escapeHtml(task.exam_number)}</span><span class="tag">${difficultyLabel(task.difficulty)}</span></div>
     <h2>${escapeHtml(task.title)}</h2><p class="task-prompt">${escapeHtml(task.prompt)}</p>
     <form class="answer-block" id="${formId}"><label for="${inputId}">Ваш ответ</label><div class="answer-row">
-      <input id="${inputId}" name="answer" autocomplete="off" placeholder="Введите ответ" required>
+      <input id="${inputId}" name="answer" maxlength="500" autocomplete="off" placeholder="Введите ответ" required>
       <button class="primary-button" type="submit">${buttonLabel}</button></div></form>
-    <div id="feedback-slot"></div>
-    <p class="task-source">Источник типа: <a href="${escapeHtml(task.source.url)}" target="_blank" rel="noreferrer">${escapeHtml(task.source.label)}</a> · условие адаптировано и не копирует оригинал дословно</p>`;
+    <div id="feedback-slot" role="status" aria-live="polite" tabindex="-1"></div>
+    <p class="task-source">Учебное задание · <a href="${safeUrl(task.source.url)}" target="_blank" rel="noreferrer">${escapeHtml(task.source.label)}</a></p>`;
 }
 
 function renderPracticeStep(lesson) {
   const task = lesson.practice_task;
   return `<article class="lesson-panel lesson-task">
-    <div class="practice-banner"><b>Практика: ${escapeHtml(lesson.topic.short_title)}</b><span>Все ${lesson.practice.total_tasks} заданий проверяют только теорию этого урока.</span></div>
-    <div class="practice-toolbar"><div><span>Задача ${lesson.practice.current_task_number} из ${lesson.practice.total_tasks}</span><i><b style="width:${lesson.practice.attempted_tasks / lesson.practice.total_tasks * 100}%"></b></i></div><button class="secondary-button" id="review-theory">← Вернуться к теории</button></div>
-    <div class="task-meta"><span class="tag accent">Задание ${task.exam_number}</span><span class="tag">${difficultyLabel(task.difficulty)}</span><span class="tag">Код ${escapeHtml(task.codifier_code)}</span><span class="tag topic-tag">Тема: ${escapeHtml(lesson.topic.short_title)}</span></div>
-    <h2>${escapeHtml(task.title)}</h2><p class="task-prompt">${escapeHtml(task.prompt)}</p>
+    <div class="practice-toolbar"><div><span>Задача ${escapeHtml(lesson.practice.current_task_number)} из ${escapeHtml(lesson.practice.total_tasks)}</span><i><b style="width:${lesson.practice.attempted_tasks / lesson.practice.total_tasks * 100}%"></b></i></div><button class="secondary-button" id="review-theory">← Вернуться к теории</button></div>
+    <div class="task-meta"><span class="tag accent">Задание ${escapeHtml(task.exam_number)}</span><span class="tag">${difficultyLabel(task.difficulty)}</span></div>
+    ${task.title === lesson.topic.short_title ? "" : `<h2>${escapeHtml(task.title)}</h2>`}<p class="task-prompt">${escapeHtml(task.prompt)}</p>
     ${renderAIHintPanel(lesson)}
     <form class="answer-block" id="lesson-answer-form"><label for="lesson-answer">Ваш ответ</label><div class="answer-row">
-      <input id="lesson-answer" name="answer" autocomplete="off" placeholder="Введите ответ" required>
+      <input id="lesson-answer" name="answer" maxlength="500" autocomplete="off" placeholder="Введите ответ" required>
       <button class="primary-button" type="submit">Проверить</button></div></form>
-    <div id="feedback-slot"></div>
-    <p class="task-source">Источник типа: <a href="${escapeHtml(task.source.url)}" target="_blank" rel="noreferrer">${escapeHtml(task.source.label)}</a> · условие адаптировано и не копирует оригинал дословно</p>
+    <div id="feedback-slot" role="status" aria-live="polite" tabindex="-1"></div>
+    <p class="task-source">Учебное задание · <a href="${safeUrl(task.source.url)}" target="_blank" rel="noreferrer">${escapeHtml(task.source.label)}</a></p>
   </article>`;
 }
 
 function renderLessons() {
   const lesson = state.lesson;
   if (lesson.status === "completed") {
-    view.innerHTML = `${pageHeader("Уроки", "Учебный маршрут завершён", "Все темы пройдены.")}
-      <section class="lesson-complete"><span>✓</span><h2>Отличная работа</h2><p>Вы завершили ${lesson.total_units} уроков. Назначенные самостоятельные работы остаются в отдельном разделе.</p><div class="complete-actions"><button class="secondary-button" data-go="roadmap">Посмотреть роадмап</button><button class="primary-button" data-go="homework">Домашние задания →</button></div></section>`;
+    view.innerHTML = `${pageHeader("Учебный маршрут завершён", "")}
+      <section class="lesson-complete"><span>✓</span><h2>Отличная работа</h2><p>Вы завершили ${escapeHtml(lesson.total_units)} уроков. Назначенные самостоятельные работы остаются в отдельном разделе.</p><div class="complete-actions"><button class="secondary-button" data-go="roadmap">Посмотреть роадмап</button><button class="primary-button" data-go="homework">Домашние задания →</button></div></section>`;
     bindGoButtons();
     return;
   }
@@ -1017,26 +1015,19 @@ function renderLessons() {
   if (isTheory) {
     const returnText = "Вернуться к задаче →";
     stepContent = `<article class="lesson-panel lesson-theory">
-      ${reviewingTheory ? `<div class="review-theory-banner"><b>Повторение теории</b><span>Прогресс текущего шага сохранён. Можно открыть любую подтему.</span><button class="secondary-button" type="button" data-return-practice>${returnText}</button></div>` : ""}
-      <p class="eyebrow">${lesson.theory.eyebrow}</p>
-      <h2>${lesson.theory.title}</h2>
-      <p class="lesson-summary">${lesson.theory.summary}</p>
+      ${reviewingTheory ? `<div class="review-theory-banner"><b>Повторение теории</b><button class="secondary-button" type="button" data-return-practice>${returnText}</button></div>` : ""}
       ${renderLessonTheory(lesson.theory)}
       ${renderAITheoryPanel(lesson)}
-      ${!lesson.theory.sections?.length || state.lessonTheoryPage === lesson.theory.sections.length - 1 ? `<aside class="theory-tip"><b>Совет перед практикой</b>${lesson.theory.tip}</aside>` : ""}
+      ${!lesson.theory.sections?.length || state.lessonTheoryPage === lesson.theory.sections.length - 1 ? `<aside class="theory-tip"><b>Совет перед практикой</b>${escapeHtml(lesson.theory.tip)}</aside>` : ""}
       ${renderTheoryActions(lesson.theory, reviewingTheory, lesson)}
     </article>`;
   } else {
     stepContent = renderPracticeStep(lesson);
   }
 
-  view.innerHTML = `${pageHeader("Текущий урок", lesson.topic.short_title, `${lesson.stage.number}-й этап · ${lesson.stage.title}`,
-    '<button class="secondary-button" data-go="roadmap">Посмотреть роадмап</button>')}
+  view.innerHTML = `${pageHeader(lesson.topic.short_title, `Тема ${lesson.position} из ${lesson.total_units}`)}
     <section class="lesson-shell">
-      <div class="lesson-context"><span>Тема ${lesson.position} из ${lesson.total_units}</span><b>${lesson.topic.title}</b><small>${lesson.topic.description}</small></div>
-      <div class="lesson-progress"><i style="width:${lesson.overall_progress}%"></i></div>
-      <ol class="lesson-stepper">${lesson.steps.map((step, index) => `<li class="lesson-step ${step.state}"><span>${step.state === "completed" ? "✓" : index + 1}</span><div><b>${step.label}</b><small>${step.state === "current" ? "Текущий шаг" : step.state === "completed" ? "Готово" : "Сначала предыдущий шаг"}</small></div></li>`).join("")}</ol>
-      <div class="lesson-current-label"><span>${reviewingTheory ? "Можно вернуться" : "Сейчас"}</span><b>${reviewingTheory ? "Повторение теории" : lessonStepTitle(currentStep)}</b></div>
+      <ol class="lesson-stepper">${lesson.steps.map((step, index) => `<li class="lesson-step ${escapeHtml(step.state)}" ${step.state === "current" ? 'aria-current="step"' : ""}><span>${step.state === "completed" ? "✓" : index + 1}</span><div><b>${escapeHtml(step.label)}</b></div></li>`).join("")}</ol>
       ${stepContent}
     </section>`;
   bindGoButtons();
@@ -1058,25 +1049,23 @@ function renderLessons() {
 function renderHomework() {
   const homework = state.homework;
   if (homework.status !== "active") {
-    view.innerHTML = `${pageHeader("Домашние задания", "Самостоятельная работа", "Отдельно от урока и практики.", '<button class="secondary-button" data-go="lessons">Перейти к урокам</button>')}
-      <section class="homework-empty"><span>✓</span><h2>Все задания выполнены</h2><p>${escapeHtml(homework.message)}</p><button class="primary-button" data-go="dashboard">Вернуться на главную</button></section>`;
+    view.innerHTML = `${pageHeader("Домашние задания", "", '<button class="secondary-button" data-go="lessons">Перейти к урокам</button>')}
+      <section class="homework-empty"><h2>Нет назначенных заданий</h2></section>`;
     bindGoButtons();
     return;
   }
   const task = homework.task;
-  view.innerHTML = `${pageHeader("Домашние задания", homework.topic.short_title, `Сдать до ${formatDate(homework.due_date)} · задача ${homework.current_task_number} из ${homework.total_tasks}`, '<button class="secondary-button" data-go="lessons">К урокам</button>')}
+  view.innerHTML = `${pageHeader(homework.topic.short_title, `Сдать до ${formatDate(homework.due_date)}`, '<button class="secondary-button" data-go="lessons">К урокам</button>')}
     <section class="homework-shell">
-      <aside class="homework-separation-note"><span>ДЗ</span><div><b>Самостоятельная работа</b><p>Теория и практика остаются в разделе «Уроки».</p></div></aside>
       <article class="lesson-panel lesson-task homework-workspace">
-        <div class="homework-banner"><b>Домашнее задание · ${homework.total_tasks} задач</b><span>Самостоятельно · после урока «${escapeHtml(homework.topic.short_title)}»</span></div>
-        <div class="practice-toolbar homework-progress"><div><span>Задача ${homework.current_task_number} из ${homework.total_tasks}</span><i><b style="width:${homework.attempted_tasks / homework.total_tasks * 100}%"></b></i></div><small>Осталось: ${homework.remaining_tasks}</small></div>
-        <div class="task-meta"><span class="tag accent">Задание ${task.exam_number}</span><span class="tag">${difficultyLabel(task.difficulty)}</span><span class="tag">Код ${task.codifier_code}</span></div>
-        <h2>${escapeHtml(task.title)}</h2><p class="task-prompt">${escapeHtml(task.prompt)}</p>
+        <div class="practice-toolbar homework-progress"><div><span>Задача ${escapeHtml(homework.current_task_number)} из ${escapeHtml(homework.total_tasks)}</span><i><b style="width:${homework.attempted_tasks / homework.total_tasks * 100}%"></b></i></div></div>
+        <div class="task-meta"><span class="tag accent">Задание ${escapeHtml(task.exam_number)}</span><span class="tag">${difficultyLabel(task.difficulty)}</span></div>
+        ${task.title === homework.topic.short_title ? "" : `<h2>${escapeHtml(task.title)}</h2>`}<p class="task-prompt">${escapeHtml(task.prompt)}</p>
         <form class="answer-block" id="homework-answer-form"><label for="homework-answer">Ваш ответ</label><div class="answer-row">
-          <input id="homework-answer" name="answer" autocomplete="off" placeholder="Введите ответ" required>
+          <input id="homework-answer" name="answer" maxlength="500" autocomplete="off" placeholder="Введите ответ" required>
           <button class="primary-button" type="submit">Сдать работу</button></div></form>
-        <div id="feedback-slot"></div>
-        <p class="task-source">Источник типа: <a href="${escapeHtml(task.source.url)}" target="_blank" rel="noreferrer">${escapeHtml(task.source.label)}</a> · условие адаптировано и не копирует оригинал дословно</p>
+        <div id="feedback-slot" role="status" aria-live="polite" tabindex="-1"></div>
+        <p class="task-source">Учебное задание · <a href="${safeUrl(task.source.url)}" target="_blank" rel="noreferrer">${escapeHtml(task.source.label)}</a></p>
       </article>
     </section>`;
   bindGoButtons();
@@ -1084,21 +1073,32 @@ function renderHomework() {
 }
 
 async function refreshLearningData() {
+  const generation = state.auth.generation;
   const [completedTheory, analytics, roadmap, lesson, homework, dashboard] = await Promise.all([
-    request(`/theory/completed?session_id=${sessionId}`),
-    request(`/analytics?session_id=${sessionId}`), request(`/roadmap?session_id=${sessionId}`),
-    request(`/lesson/current?session_id=${sessionId}`),
-    request(`/homework/current?session_id=${sessionId}`),
-    request(`/dashboard?session_id=${sessionId}`),
+    request(`/theory/completed`),
+    request(`/analytics`), request(`/roadmap`),
+    request(`/lesson/current`),
+    request(`/homework/current`),
+    request(`/dashboard`),
   ]);
+  assertCurrentSession(generation);
   Object.assign(state, { completedTheory, analytics, roadmap, lesson, homework, dashboard });
   if (state.role === "admin") {
     const [admin, adminUsers] = await Promise.all([
       request("/admin/dashboard"), request("/admin/users"),
     ]);
+    assertCurrentSession(generation);
     Object.assign(state, { admin, adminUsers });
   }
   updateHomeworkBadge();
+}
+
+async function syncSavedLearningData() {
+  try { await refreshLearningData(); }
+  catch (error) {
+    if (error.silent) throw error;
+    toast("Изменение сохранено, но сводку обновить не удалось. Перезагрузите страницу для обновления.");
+  }
 }
 
 function reviewCurrentTheory() {
@@ -1123,12 +1123,12 @@ async function completeCurrentTheory() {
   try {
     state.lesson = await request("/lesson/theory/complete", {
       method: "POST",
-      body: JSON.stringify({ session_id: sessionId, lesson_unit_id: state.lesson.unit_id }),
+      body: JSON.stringify({ lesson_unit_id: state.lesson.unit_id }),
     });
-    await refreshLearningData();
+    await syncSavedLearningData();
     state.lessonView = null;
     state.lessonTheoryPage = 0;
-    renderLessons();
+    if (button.isConnected) { renderLessons(); view.focus({ preventScroll: true }); }
     toast("Теория пройдена. Открыта практика.");
   } catch (error) {
     button.disabled = false;
@@ -1153,7 +1153,6 @@ async function submitLessonAnswer(event) {
     const result = await request("/attempts", {
       method: "POST",
       body: JSON.stringify({
-        session_id: sessionId,
         task_id: task.id,
         answer,
         duration_seconds: 90,
@@ -1164,21 +1163,24 @@ async function submitLessonAnswer(event) {
     });
     state.lesson = result.lesson;
     state.homework = result.homework;
-    await refreshLearningData();
+    await syncSavedLearningData();
     state.lessonView = null;
     const correctTitle = result.practice_complete
       ? `Практика «${escapeHtml(practiceTopic)}» завершена`
       : `Верно — задача ${practiceNumber} из ${practiceTotal}`;
     const incorrectTitle = `Неверно — задача ${practiceNumber} из ${practiceTotal} завершена`;
+    if (!form.isConnected) return;
     document.querySelector("#feedback-slot").innerHTML = `<div class="feedback ${result.is_correct ? "correct" : "incorrect"}">
       <b>${result.is_correct ? correctTitle : incorrectTitle}</b>
-      ${result.is_correct ? "" : `Верный ответ: ${escapeHtml(result.correct_answer)}.<br>`}${result.explanation}<br><span style="opacity:.78">${result.recommendation}</span>
+      ${result.is_correct ? "" : `Верный ответ: ${escapeHtml(result.correct_answer)}.<br>`}${escapeHtml(result.explanation)}
       ${result.is_correct ? "" : renderAIErrorAction(result.attempt.id)}
-      <div class="feedback-action"><button class="primary-button" id="lesson-next">${result.practice_complete ? "Перейти к следующему уроку" : `Следующая задача по теме «${escapeHtml(practiceTopic)}»`} →</button>${result.practice_complete ? '<button class="secondary-button" id="lesson-homework">Открыть ДЗ отдельно</button>' : ""}</div>
+      <div class="feedback-action"><button class="primary-button" id="lesson-next">${result.practice_complete ? "Перейти к следующему уроку" : "Следующая задача"} →</button>${result.practice_complete ? '<button class="secondary-button" id="lesson-homework">Открыть ДЗ</button>' : ""}</div>
     </div>`;
     form.classList.add("hidden");
+    document.querySelector("#ai-hint-button")?.classList.add("hidden");
+    document.querySelector("#feedback-slot").focus({ preventScroll: true });
     if (!result.is_correct) bindAIErrorAnalysis();
-    document.querySelector("#lesson-next").addEventListener("click", renderLessons);
+    document.querySelector("#lesson-next").addEventListener("click", () => { renderLessons(); view.focus(); });
     document.querySelector("#lesson-homework")?.addEventListener("click", () => goTo("homework"));
   } catch (error) {
     toast(error.message);
@@ -1204,7 +1206,6 @@ async function submitHomeworkAnswer(event) {
     const result = await request("/attempts", {
       method: "POST",
       body: JSON.stringify({
-        session_id: sessionId,
         task_id: assignment.task.id,
         answer,
         duration_seconds: 120,
@@ -1213,20 +1214,22 @@ async function submitHomeworkAnswer(event) {
         lesson_task_key: assignment.task.lesson_task_key,
       }),
     });
-    await refreshLearningData();
+    await syncSavedLearningData();
     const title = result.is_correct
       ? result.homework_unit_complete ? "Домашняя работа завершена" : `Верно — задача ${homeworkNumber} из ${homeworkTotal}`
       : `Неверно — задача ${homeworkNumber} из ${homeworkTotal} завершена`;
+    if (!form.isConnected) return;
     document.querySelector("#feedback-slot").innerHTML = `<div class="feedback ${result.is_correct ? "correct" : "incorrect"}">
       <b>${title}</b>
-      ${result.is_correct ? "" : `Верный ответ: ${escapeHtml(result.correct_answer)}.<br>`}${escapeHtml(result.explanation)}<br><span style="opacity:.78">${escapeHtml(result.recommendation)}</span>
+      ${result.is_correct ? "" : `Верный ответ: ${escapeHtml(result.correct_answer)}.<br>`}${escapeHtml(result.explanation)}
       ${result.is_correct ? "" : renderAIErrorAction(result.attempt.id)}
       <div class="feedback-action"><button class="primary-button" id="homework-next">${result.homework_unit_complete ? "Готово" : "Следующая задача"} →</button></div>
     </div>`;
     form.classList.add("hidden");
+    document.querySelector("#feedback-slot").focus({ preventScroll: true });
     if (!result.is_correct) bindAIErrorAnalysis();
     document.querySelector("#homework-next").addEventListener("click", () => {
-      if (state.homework.status === "active") renderHomework();
+      if (state.homework.status === "active") { renderHomework(); view.focus(); }
       else goTo("dashboard");
     });
   } catch (error) {
@@ -1247,26 +1250,25 @@ function renderPractice() {
   const list = filteredTasks();
   if (state.currentTask >= list.length) state.currentTask = 0;
   const task = list[state.currentTask];
-  view.innerHTML = `${pageHeader("Тренажёр", "Практика по структуре ЕГЭ", "19 позиций, официальная разбалловка и мгновенная обратная связь. Задания — учебные аналоги по типам ФИПИ.")}
+  view.innerHTML = `${pageHeader("Практика")}
     <div class="practice-layout">
       <aside class="task-sidebar">
         <div class="filter-group"><label>Сложность</label>
           ${[["all", "Все"], ["basic", "База"], ["standard", "Средние"], ["advanced", "Повышенные"], ["expert", "Сложные"]].map(([value, label]) => `<button class="filter-chip ${state.practiceFilter === value ? "active" : ""}" data-filter="${value}">${label}</button>`).join("")}
         </div>
         <div class="filter-group"><label>Номер задания</label><div class="task-numbers">
-          ${list.map((item, index) => `<button class="task-number ${index === state.currentTask ? "active" : ""} ${item.difficulty === "expert" ? "complex" : ""}" data-task-index="${index}">${item.exam_number}</button>`).join("")}
+          ${list.map((item, index) => `<button class="task-number ${index === state.currentTask ? "active" : ""} ${item.difficulty === "expert" ? "complex" : ""}" data-task-index="${index}">${escapeHtml(item.exam_number)}</button>`).join("")}
         </div></div>
-        <p class="data-note">Часть 1: №1–12 по 1 баллу.<br>Часть 2: №13–19 до 4 баллов.<br>№14 и №17 относятся к сложным.</p>
       </aside>
       <section class="task-workspace">
-        <div class="task-meta"><span class="tag accent">Задание ${task.exam_number}</span><span class="tag">${difficultyLabel(task.difficulty)}</span><span class="tag">Код ${task.codifier_code}</span><span class="tag">до ${task.max_primary_score} перв. балл.</span></div>
-        <h2>${task.title}</h2><p class="task-prompt">${task.prompt}</p>
-        <div class="content-links prominent"><a href="#theory-${task.theory_id}" data-open-theory="${task.theory_id}">Открыть теорию по теме →</a></div>
+        <div class="task-meta"><span class="tag accent">Задание ${escapeHtml(task.exam_number)}</span><span class="tag">${difficultyLabel(task.difficulty)}</span><span class="tag">до ${escapeHtml(task.max_primary_score)} перв. балл.</span></div>
+        <h2>${escapeHtml(task.title)}</h2><p class="task-prompt">${escapeHtml(task.prompt)}</p>
+        <div class="content-links prominent"><a href="#theory-${escapeHtml(task.theory_id)}" data-open-theory="${escapeHtml(task.theory_id)}">Открыть теорию по теме →</a></div>
         <form class="answer-block" id="answer-form"><label for="answer">Ваш ответ</label><div class="answer-row">
-          <input id="answer" name="answer" autocomplete="off" placeholder="Введите число" required>
+          <input id="answer" name="answer" maxlength="500" autocomplete="off" placeholder="Введите число" required>
           <button class="primary-button" type="submit">Проверить</button></div></form>
-        <div id="feedback-slot"></div>
-        <p class="task-source">Источник типа: <a href="${task.source.url}" target="_blank" rel="noreferrer">открытые материалы ФИПИ ЕГЭ-2026</a> · формулировка адаптирована для прототипа</p>
+        <div id="feedback-slot" role="status" aria-live="polite" tabindex="-1"></div>
+        <p class="task-source">Учебное задание · <a href="${safeUrl(task.source.url)}" target="_blank" rel="noreferrer">открытые материалы ФИПИ ЕГЭ-2026</a></p>
         <div class="task-nav"><button class="secondary-button" data-task-step="-1" ${state.currentTask === 0 ? "disabled" : ""}>← Назад</button><button class="secondary-button" data-task-step="1" ${state.currentTask === list.length - 1 ? "disabled" : ""}>Следующее →</button></div>
       </section>
     </div>`;
@@ -1286,6 +1288,8 @@ function renderPractice() {
 
 async function submitAnswer(event) {
   event.preventDefault();
+  const generation = state.auth.generation;
+  const form = event.currentTarget;
   const list = filteredTasks();
   const task = list[state.currentTask];
   const answer = new FormData(event.currentTarget).get("answer");
@@ -1294,20 +1298,22 @@ async function submitAnswer(event) {
   try {
     const result = await request("/attempts", {
       method: "POST",
-      body: JSON.stringify({ session_id: sessionId, task_id: task.id, answer, duration_seconds: 90 }),
+      body: JSON.stringify({ task_id: task.id, answer, duration_seconds: 90 }),
     });
+    if (!form.isConnected) return;
     document.querySelector("#feedback-slot").innerHTML = `<div class="feedback ${result.is_correct ? "correct" : "incorrect"}">
-      <b>${result.is_correct ? "Верно — балл ваш" : `Пока не так. Ответ: ${result.correct_answer}`}</b>
-      ${result.explanation}<br><span style="opacity:.78">${result.recommendation}</span></div>`;
+      <b>${result.is_correct ? "Верно" : `Пока не так. Ответ: ${escapeHtml(result.correct_answer)}`}</b>
+      ${escapeHtml(result.explanation)}</div>`;
     const [analytics, roadmap] = await Promise.all([
-      request(`/analytics?session_id=${sessionId}`), request(`/roadmap?session_id=${sessionId}`),
+      request(`/analytics`), request(`/roadmap`),
     ]);
     Object.assign(state, { analytics, roadmap });
     if (state.role === "admin") {
       const [admin, adminUsers] = await Promise.all([
         request("/admin/dashboard"), request("/admin/users"),
       ]);
-      Object.assign(state, { admin, adminUsers });
+      assertCurrentSession(generation);
+    Object.assign(state, { admin, adminUsers });
     }
   } catch (error) {
     toast(error.message);
@@ -1319,17 +1325,17 @@ async function submitAnswer(event) {
 function renderTheory() {
   const chapters = state.completedTheory;
   if (!chapters.length) {
-    view.innerHTML = `${pageHeader("Конспект", "Пройденная теория", "Только теория из уже завершённых теоретических блоков.")}
-      <section class="theory-history-empty"><span>∑</span><h2>Пока нет пройденных конспектов</h2><p>Завершите теоретическую часть первого урока — материал автоматически появится здесь.</p><button class="primary-button" data-go="lessons">Перейти к уроку →</button></section>`;
+    view.innerHTML = `${pageHeader("Пройденная теория", "")}
+      <section class="theory-history-empty"><h2>Пока нет пройденных конспектов</h2><p>Они появятся после прохождения теории в уроках.</p><button class="primary-button" data-go="lessons">Перейти к уроку →</button></section>`;
     bindGoButtons();
     return;
   }
-  view.innerHTML = `${pageHeader("Конспект", "Пройденная теория", "Теоретические блоки расположены в порядке первого прохождения.")}
+  view.innerHTML = `${pageHeader("Пройденная теория", "")}
     <div class="theory-history-list" aria-label="Пройденные теоретические блоки">${chapters.map(renderCompletedTheoryCard).join("")}</div>`;
 }
 
 function renderPredictionHistory(history, maxScore) {
-  if (!history.length) return `<div class="prediction-history-empty"><b>График появится после полной диагностики</b><p>Сначала нужен хотя бы один реальный ответ по каждому из 19 типов заданий. До этого тестовый балл не подставляется.</p><span>Покрытие: ${state.analytics.prediction.covered_task_types} из ${state.analytics.prediction.required_task_types}</span></div>`;
+  if (!history.length) return "";
   const step = history.length === 1 ? 0 : 504 / (history.length - 1);
   const x = (index) => history.length === 1 ? 280 : 28 + index * step;
   const y = (score) => 218 - score / maxScore * 172;
@@ -1340,33 +1346,31 @@ function renderPredictionHistory(history, maxScore) {
       ${gridScores.map((score) => `<line class="grid" x1="28" y1="${y(score)}" x2="532" y2="${y(score)}"></line><text x="2" y="${y(score) + 4}">${score}</text>`).join("")}
       <polygon class="area" points="${areaPoints}"></polygon><polyline class="line" points="${points}"></polyline>
       ${history.map((item, index) => `<circle class="dot" cx="${x(index)}" cy="${y(item.score)}" r="5"></circle>`).join("")}
-    </svg><div class="chart-labels score-chart-labels">${history.map((item) => `<span>${item.label}<br><b>${item.score} / ${item.max_score}</b></span>`).join("")}</div>`;
+    </svg><div class="chart-labels score-chart-labels">${history.map((item) => `<span>${escapeHtml(item.label)}<br><b>${escapeHtml(item.score)} / ${escapeHtml(item.max_score)}</b></span>`).join("")}</div>`;
 }
 
 function renderAnalytics() {
   const data = state.analytics;
   const prediction = data.prediction;
-  view.innerHTML = `${pageHeader("Результаты", "Аналитика", "Прогресс, ошибки и прогноз по реальным ответам.")}
+  view.innerHTML = `${pageHeader("Аналитика", "")}
     <div class="analytics-grid">
-      <article class="metric-card"><span class="metric-icon">∑</span><small>Попыток</small><b>${data.summary.attempts}</b></article>
-      <article class="metric-card"><span class="metric-icon teal">✓</span><small>Верных</small><b>${data.summary.correct}<span class="metric-suffix"> / ${data.summary.attempts}</span></b></article>
-      <article class="metric-card"><span class="metric-icon yellow">№</span><small>Типов пройдено</small><b>${prediction.covered_task_types}<span class="metric-suffix"> / ${prediction.required_task_types}</span></b></article>
-      <article class="metric-card"><span class="metric-icon dark">↗</span><small>Прогноз ЕГЭ</small><b>${prediction.available ? prediction.predicted_test_score : "—"}<span class="metric-suffix"> / ${prediction.max_test_score}</span></b></article>
+      <article class="metric-card"><small>Попыток</small><b>${escapeHtml(data.summary.attempts)}</b></article>
+      <article class="metric-card"><small>Верных</small><b>${escapeHtml(data.summary.correct)}</b></article>
+      <article class="metric-card"><small>Типов проверено</small><b>${escapeHtml(prediction.covered_task_types)}<span class="metric-suffix"> / ${escapeHtml(prediction.required_task_types)}</span></b></article>
+      <article class="metric-card"><small>Прогноз ЕГЭ</small><b>${prediction.available ? prediction.predicted_test_score : "—"}<span class="metric-suffix"> / ${escapeHtml(prediction.max_test_score)}</span></b>${prediction.available ? "" : `<p class="metric-note">Нужны ответы по всем ${escapeHtml(prediction.required_task_types)} типам</p>`}</article>
 
-      <section class="panel chart-panel"><div class="section-heading"><div><h2>Динамика балла</h2><p>По последним реальным ответам</p></div><span class="model-badge">ЕГЭ-2026</span></div>
+      ${data.prediction_history.length ? `<section class="panel chart-panel"><div class="section-heading"><h2>Динамика балла</h2></div>
         ${renderPredictionHistory(data.prediction_history, data.prediction.max_test_score)}
-      </section>
-      <section class="panel weak-panel"><div class="section-heading"><div><h2>Зоны внимания</h2><p>Темы с ошибками</p></div></div>
-        <div class="weak-list">${data.weak_topics.length ? data.weak_topics.map((item) => `<article class="weak-item"><div><b>${item.short_title}</b><span>${item.correct} / ${item.attempts} · ${percent(item.mastery)}</span></div><span class="content-links"><a href="${item.theory_href}" data-open-theory="${item.theory_id}">Теория</a><a href="${item.practice_href}" data-open-task="${state.tasks.find((task) => task.topic_id === item.topic_id).id}">Практика</a></span></article>`).join("") : `<div class="empty-state compact">${data.summary.attempts ? "Тем с ошибками пока нет." : "Сначала решите несколько заданий."}</div>`}</div>
-      </section>
+      </section>` : ""}
       <section class="panel mastery-panel"><div class="section-heading"><div><h2>Результаты по темам</h2></div></div>
-        <div class="mastery-list">${data.topics.map((item) => `<div class="mastery-item" style="--topic-color:${item.accent}"><div><b>${item.short_title}</b><span>${percent(item.mastery)} · ${item.attempts} попыток</span></div><div class="mini-track"><i style="width:${item.mastery ?? 0}%;background:${item.accent}"></i></div><span class="content-links"><a href="${item.theory_href}" data-open-theory="${item.theory_id}">Теория</a><a href="${item.practice_href}" data-open-task="${state.tasks.find((task) => task.topic_id === item.topic_id).id}">Практика</a></span></div>`).join("")}</div>
+        <div class="mastery-list">${data.topics.filter((item) => item.attempts > 0).map((item) => `<div class="mastery-item" style="--topic-color:${safeColor(item.accent)}"><div><b>${escapeHtml(item.short_title)}</b><span>${percent(item.mastery)} · ${attemptCount(item.attempts)}</span></div><div class="mini-track"><i style="width:${item.mastery ?? 0}%;background:${safeColor(item.accent)}"></i></div><span class="content-links"><a href="${safeUrl(item.theory_href)}" data-open-theory="${escapeHtml(item.theory_id)}">Теория</a><a href="${safeUrl(item.practice_href)}" data-open-task="${escapeHtml(state.tasks.find((task) => task.topic_id === item.topic_id)?.id || "")}">Практика</a></span></div>`).join("") || '<div class="empty-state compact">Пока нет решений. <button class="secondary-button" data-go="lessons">Перейти к уроку</button></div>'}</div>
       </section>
-      <section class="panel plan-panel"><div class="section-heading"><div><h2>Индивидуальный план</h2><p>Что повторить дальше</p></div></div>
-        <div class="plan-list">${data.individual_plan.length ? data.individual_plan.map((item) => `<article class="plan-item"><i class="plan-dot"></i><span><b>${item.title}</b><small>${item.reason}</small><span class="content-links"><a href="${item.theory_href}" data-open-theory="${item.theory_id}">Теория</a><a href="${item.practice_href}" data-open-task="${item.task_id}">Практика</a></span></span><time>${formatDate(item.due_date)}</time></article>`).join("") : `<div class="empty-state compact">План появится после подтверждённой ошибки.</div>`}</div>
-      </section>
+      ${data.individual_plan.length ? `<section class="panel plan-panel"><div class="section-heading"><div><h2>Повторить</h2></div></div>
+        <div class="plan-list">${data.individual_plan.map((item) => `<article class="plan-item"><span><b>${escapeHtml(item.title)}</b><span class="content-links"><a href="${safeUrl(item.theory_href)}" data-open-theory="${escapeHtml(item.theory_id)}">Теория</a><a href="${safeUrl(item.practice_href)}" data-open-task="${escapeHtml(item.task_id)}">Практика</a></span></span><time>${formatDate(item.due_date)}</time></article>`).join("")}</div>
+      </section>` : ""}
     </div>`;
   bindContentLinks();
+  bindGoButtons();
 }
 
 function riskLabel(risk) {
@@ -1375,43 +1379,51 @@ function riskLabel(risk) {
 
 function renderAdmin() {
   const admin = state.admin;
-  const usersRows = state.adminUsers.length ? state.adminUsers.map((user) => `<tr><td><b>${escapeHtml(user.name)}</b></td><td>${user.attempts}</td><td>${user.accuracy}%</td><td>${user.primary_result ?? "—"}</td><td>${formatDateTime(user.activity)}</td><td><span class="status-chip ${user.risk}">${riskLabel(user.risk)}</span></td></tr>`).join("") : `<tr><td colspan="6"><div class="empty-state compact">Пока нет ни одной реальной попытки.</div></td></tr>`;
-  view.innerHTML = `${pageHeader("Роль администратора", "Панель управления", "Метрики пользователей считаются только по фактическим решениям.", '<button class="primary-button" id="add-content">+ Добавить материал</button>')}
-    <section class="admin-banner"><div><h2>Учебный контур работает штатно</h2><p>Версия контента ${admin.system.content_version} · очередь фоновых задач ${admin.system.queue}</p></div><span class="status-ok"><i></i> API доступен</span></section>
+  const usersRows = state.adminUsers.length ? state.adminUsers.map((user) => `<tr><td><b>${escapeHtml(user.name)}</b></td><td>${escapeHtml(user.attempts)}</td><td>${escapeHtml(user.accuracy)}%</td><td>${user.primary_result ?? "—"}</td><td>${formatDateTime(user.activity)}</td><td><span class="status-chip ${escapeHtml(user.risk)}">${riskLabel(user.risk)}</span></td></tr>`).join("") : `<tr><td colspan="6"><div class="empty-state compact">Пока нет решений.</div></td></tr>`;
+  view.innerHTML = `${pageHeader("Панель управления")}
     <section class="section"><div class="analytics-grid">
-      <article class="metric-card"><small>Сессий с решениями</small><b>${admin.metrics.students}</b></article>
-      <article class="metric-card"><small>Активны сегодня</small><b>${admin.metrics.active_today}</b></article>
-      <article class="metric-card"><small>Решений сегодня</small><b>${admin.metrics.attempts_today}</b></article>
+      <article class="metric-card"><small>Сессий с решениями</small><b>${escapeHtml(admin.metrics.students)}</b></article>
+      <article class="metric-card"><small>Активны сегодня</small><b>${escapeHtml(admin.metrics.active_today)}</b></article>
+      <article class="metric-card"><small>Решений сегодня</small><b>${escapeHtml(admin.metrics.attempts_today)}</b></article>
       <article class="metric-card"><small>Средний первичный результат</small><b>${admin.metrics.average_primary_result ?? "—"}</b></article>
     </div></section>
     <section class="section two-column">
-      <div class="panel"><div class="section-heading"><div><h2>Реальные учебные сессии</h2><p>Строка появляется после первого решения</p></div></div><div class="table-scroll"><table class="admin-table"><thead><tr><th>Сессия</th><th>Попыток</th><th>Точность</th><th>Первичные</th><th>Активность</th><th>Статус</th></tr></thead><tbody>${usersRows}</tbody></table></div></div>
-      <div class="panel"><div class="section-heading"><div><h2>Готовность контента</h2><p>Покрытие 19 позиций КИМ</p></div></div>
-        <div class="forecast-number" style="font-size:62px">${admin.content.coverage_percent}<small>%</small></div>
-        <div class="mini-track" style="height:8px"><i style="width:${admin.content.coverage_percent}%;background:var(--teal)"></i></div>
-        <p class="data-note">${admin.content.tasks_published} из ${admin.content.tasks_total} заданий опубликованы · ${admin.content.theory_chapters} конспектов теории.</p>
+      <div class="panel"><div class="section-heading"><div><h2>Учебные сессии</h2></div></div><div class="table-scroll" role="region" tabindex="0" aria-label="Таблица учебных данных"><table class="admin-table"><thead><tr><th>Сессия</th><th>Попыток</th><th>Точность</th><th>Первичные</th><th>Активность</th><th>Статус</th></tr></thead><tbody>${usersRows}</tbody></table></div></div>
+      <div class="panel"><div class="section-heading"><div><h2>Опубликованные задания</h2></div></div>
+        <div class="forecast-number" style="font-size:40px">${escapeHtml(admin.content.coverage_percent)}<small>%</small></div>
+        <div class="mini-track" style="height:8px"><i style="width:${escapeHtml(admin.content.coverage_percent)}%;background:var(--teal)"></i></div>
+        <p class="data-note">${escapeHtml(admin.content.tasks_published)} из ${escapeHtml(admin.content.tasks_total)} заданий опубликованы · ${escapeHtml(admin.content.theory_chapters)} конспектов теории.</p>
       </div>
     </section>
-    <section class="section panel"><div class="section-heading"><div><h2>Банк заданий</h2><p>Публикация управляется без удаления данных</p></div><span class="tag">ФИПИ-2026 · адаптировано</span></div>
-      <div class="table-scroll"><table class="admin-table"><thead><tr><th>№</th><th>Название</th><th>Код</th><th>Сложность</th><th>Баллы</th><th>Публикация</th></tr></thead><tbody>
-        ${state.adminTasks.map((task) => `<tr><td>${task.exam_number}</td><td><b>${task.title}</b></td><td>${task.codifier_code}</td><td>${difficultyLabel(task.difficulty)}</td><td>${task.max_primary_score}</td><td><button class="toggle ${task.published ? "on" : ""}" data-toggle-task="${task.id}" aria-label="Изменить публикацию"><i></i></button></td></tr>`).join("")}
+    <section class="section panel"><div class="section-heading"><div><h2>Банк заданий</h2></div></div>
+      <div class="table-scroll" role="region" tabindex="0" aria-label="Таблица учебных данных"><table class="admin-table"><thead><tr><th>№</th><th>Название</th><th>Код</th><th>Сложность</th><th>Баллы</th><th>Публикация</th></tr></thead><tbody>
+        ${state.adminTasks.map((task) => `<tr><td>${escapeHtml(task.exam_number)}</td><td><b>${escapeHtml(task.title)}</b></td><td>${escapeHtml(task.codifier_code)}</td><td>${difficultyLabel(task.difficulty)}</td><td>${escapeHtml(task.max_primary_score)}</td><td><button class="toggle ${task.published ? "on" : ""}" data-toggle-task="${escapeHtml(task.id)}" role="switch" aria-checked="${escapeHtml(task.published)}" aria-label="Публикация задания ${escapeHtml(task.exam_number)}"><i></i></button></td></tr>`).join("")}
       </tbody></table></div>
     </section>`;
-  document.querySelector("#add-content").addEventListener("click", () => toast("Редактор материалов пока не подключён."));
-  document.querySelectorAll("[data-toggle-task]").forEach((button) => button.addEventListener("click", () => toggleTask(button.dataset.toggleTask)));
+  document.querySelectorAll("[data-toggle-task]").forEach((button) => button.addEventListener("click", () => toggleTask(button.dataset.toggleTask, button)));
 }
 
-async function toggleTask(taskId) {
+async function toggleTask(taskId, button) {
+  if (button.disabled) return;
+  button.disabled = true;
   const task = state.adminTasks.find((item) => item.id === taskId);
   try {
     const updated = await request(`/admin/tasks/${taskId}/status`, {
       method: "PATCH", body: JSON.stringify({ published: !task.published }),
     });
     Object.assign(task, updated);
-    state.admin = await request("/admin/dashboard");
-    renderAdmin();
+    state.admin = await request("/admin/dashboard").catch((error) => {
+      if (error.silent) throw error;
+      toast("Публикация изменена, но сводку обновить не удалось.");
+      return state.admin;
+    });
+    if (state.page === "admin") {
+      renderAdmin();
+      document.querySelector(`[data-toggle-task="${CSS.escape(taskId)}"]`)?.focus({ preventScroll: true });
+    }
     toast(updated.published ? "Задание опубликовано" : "Задание снято с публикации");
   } catch (error) { toast(error.message); }
+  finally { button.disabled = false; }
 }
 
 function bindGoButtons() {
@@ -1450,7 +1462,7 @@ function openTheory(theoryId) {
   goTo("theory");
   requestAnimationFrame(() => {
     const chapter = document.querySelector(`#completed-theory-${CSS.escape(theoryId)}`);
-    chapter?.scrollIntoView({ behavior: "smooth", block: "start" });
+    chapter?.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
   });
 }
 
@@ -1471,7 +1483,7 @@ function setActiveNav() {
     if (isActive) activeItem = item;
   });
   if (activeItem && activeItem.parentElement.scrollWidth > activeItem.parentElement.clientWidth) {
-    activeItem.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    activeItem.scrollIntoView({ behavior: "auto", block: "nearest", inline: "center" });
   }
 }
 
@@ -1483,10 +1495,11 @@ function goTo(page) {
   setActiveNav();
   render();
   view.focus({ preventScroll: true });
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo({ top: 0, behavior: scrollBehavior() });
 }
 
 function render() {
+  if (!state.auth.user || !state.lesson) return;
   const pages = {
     dashboard: renderDashboard, roadmap: renderRoadmap, lessons: renderLessons,
     theory: renderTheory, homework: renderHomework, analytics: renderAnalytics, admin: renderAdmin,
@@ -1531,11 +1544,19 @@ function authErrorMessage(message) {
     "Email already exists": "Аккаунт с этой почтой уже существует.",
     "Display name already exists": "Это имя уже занято.",
     "Account already exists": "Такой аккаунт уже существует.",
+    "Authentication required": "Войдите в аккаунт.",
+    "User is unavailable": "Аккаунт недоступен. Войдите снова.",
   };
   if (translations[message]) return translations[message];
   if (message.includes("email address")) return "Проверьте адрес электронной почты.";
   if (message.includes("at least 8 characters")) return "Пароль должен содержать не менее 8 символов.";
   return message;
+}
+
+function setAuthBusy(busy) {
+  state.auth.busy = busy;
+  document.querySelectorAll(".auth-tab, .auth-submit").forEach((button) => { button.disabled = busy; });
+  document.querySelector(".auth-card").setAttribute("aria-busy", String(busy));
 }
 
 function setAuthMode(mode, focus = false) {
@@ -1546,6 +1567,8 @@ function setAuthMode(mode, focus = false) {
   registerTab.classList.toggle("active", !isLogin);
   loginTab.setAttribute("aria-selected", String(isLogin));
   registerTab.setAttribute("aria-selected", String(!isLogin));
+  loginTab.tabIndex = isLogin ? 0 : -1;
+  registerTab.tabIndex = isLogin ? -1 : 0;
   document.querySelector("#login-form").classList.toggle("hidden", !isLogin);
   document.querySelector("#register-form").classList.toggle("hidden", isLogin);
   setAuthStatus();
@@ -1585,22 +1608,31 @@ function toggleAccountMenu(force) {
   const shouldOpen = force ?? menu.classList.contains("hidden");
   menu.classList.toggle("hidden", !shouldOpen);
   document.querySelector("#role-switch").setAttribute("aria-expanded", String(shouldOpen));
+  if (shouldOpen) document.querySelector("#logout-button").focus();
 }
 
 function endLocalSession(message = "") {
+  state.auth.generation += 1;
+  state.auth.refreshPromise = null;
   clearTokens();
   state.auth.user = null;
-  sessionId = "";
   resetPrivateState();
   toggleAccountMenu(false);
   setAuthMode("login");
+  view.replaceChildren();
+  document.querySelector("#toast-region").replaceChildren();
+  document.querySelector("#login-form").reset();
+  document.querySelector("#register-form").reset();
   showAuth(message);
+  document.querySelector("#login-email").focus();
 }
 
 async function initializeLearningView() {
+  const generation = state.auth.generation;
   view.innerHTML = `<div class="loading-state"><span class="loader"></span><p>Собираем ваш учебный план…</p></div>`;
   try {
     await loadData();
+    assertCurrentSession(generation);
     updateHomeworkBadge();
     const hash = window.location.hash.slice(1);
     const allowedPages = ["roadmap", "lessons", "theory", "homework", "analytics"];
@@ -1613,17 +1645,18 @@ async function initializeLearningView() {
       render();
     }
   } catch (error) {
-    view.innerHTML = `<div class="error-card"><h2>Сайт запущен, но API не ответил</h2><p>${escapeHtml(error.message)}</p><button class="secondary-button" onclick="location.reload()">Повторить</button></div>`;
+    if (error.silent) return;
+    view.innerHTML = `<div class="error-card"><h2>Не удалось загрузить учебный план</h2><p>${escapeHtml(error.message)}</p><button class="secondary-button" id="retry-learning">Повторить</button></div>`;
+    document.querySelector("#retry-learning").addEventListener("click", initializeLearningView);
   }
 }
 
 async function activateAuthenticatedSession(tokens = null) {
-  if (tokens) persistTokens(tokens);
+  if (tokens) { state.auth.generation += 1; persistTokens(tokens); }
   const user = await userRequest("/me");
   resetPrivateState();
   state.auth.user = user;
   state.role = user.role;
-  sessionId = String(user.id);
   updateAccountUI();
   showApplication();
   await initializeLearningView();
@@ -1631,6 +1664,8 @@ async function activateAuthenticatedSession(tokens = null) {
 
 async function submitLogin(event) {
   event.preventDefault();
+  if (state.auth.busy) return;
+  setAuthBusy(true);
   const form = event.currentTarget;
   const button = form.querySelector("button[type='submit']");
   const data = new FormData(form);
@@ -1650,10 +1685,11 @@ async function submitLogin(event) {
     await activateAuthenticatedSession(tokens);
     form.reset();
   } catch (error) {
-    showAuth(authErrorMessage(error.message));
+    if (!error.silent) showAuth(authErrorMessage(error.message));
   } finally {
     button.disabled = false;
     button.textContent = "Войти";
+    setAuthBusy(false);
   }
 }
 
@@ -1667,6 +1703,8 @@ async function submitRegistration(event) {
     setAuthStatus("Пароли не совпадают.");
     return;
   }
+  if (state.auth.busy) return;
+  setAuthBusy(true);
   button.disabled = true;
   button.textContent = "Создаём аккаунт…";
   setAuthStatus();
@@ -1684,31 +1722,27 @@ async function submitRegistration(event) {
     await activateAuthenticatedSession(tokens);
     form.reset();
   } catch (error) {
-    showAuth(authErrorMessage(error.message));
+    if (!error.silent) showAuth(authErrorMessage(error.message));
   } finally {
     button.disabled = false;
     button.textContent = "Создать аккаунт";
+    setAuthBusy(false);
   }
 }
 
 async function logoutCurrentUser() {
   const refreshToken = state.auth.refreshToken;
-  const button = document.querySelector("#logout-button");
-  button.disabled = true;
-  button.textContent = "Выходим…";
+  const accessToken = state.auth.accessToken;
+  endLocalSession("Вы вышли из аккаунта.");
+  if (!refreshToken || !accessToken) return;
   try {
-    if (refreshToken && state.auth.accessToken) {
-      await requestFrom(AUTH_API, "/logout", {
-        method: "POST",
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      });
-    }
-  } catch {
-    // Локальная сессия всё равно должна быть очищена.
-  } finally {
-    button.disabled = false;
-    button.textContent = "Выйти из аккаунта";
-    endLocalSession("Вы вышли из аккаунта.");
+    await requestFrom(AUTH_API, "/logout", {
+      method: "POST", skipAuth: true, retryAuth: false,
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+  } catch (error) {
+    if (!error.silent && !state.auth.user) setAuthStatus("Вы вышли на этом устройстве. Сервер не подтвердил отзыв сессии.");
   }
 }
 
@@ -1736,10 +1770,36 @@ document.addEventListener("click", (event) => {
   if (!actions.contains(event.target)) toggleAccountMenu(false);
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") {
+  if (event.key === "Escape" && !document.querySelector("#account-menu").classList.contains("hidden")) {
     toggleAccountMenu(false);
     document.querySelector("#role-switch")?.focus();
   }
 });
+
+document.querySelector(".auth-tabs").addEventListener("keydown", (event) => {
+  if (state.auth.busy || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const login = event.key === "Home" || (event.key !== "End" && document.activeElement.id !== "login-tab");
+  setAuthMode(login ? "login" : "register");
+  document.querySelector(login ? "#login-tab" : "#register-tab").focus();
+});
+document.querySelector(".topbar-actions").addEventListener("focusout", (event) => {
+  if (!event.currentTarget.contains(event.relatedTarget)) toggleAccountMenu(false);
+});
+
+window.addEventListener("hashchange", () => {
+  if (!state.auth.user || !state.lesson) return;
+  const hash = window.location.hash.slice(1);
+  const pages = ["dashboard", "lessons", "theory", "homework", "roadmap", "analytics"];
+  if (state.role === "admin") pages.push("admin");
+  const page = pages.includes(hash) ? hash : "dashboard";
+  if (page !== state.page) goTo(page);
+});
+
+const headerObserver = new ResizeObserver(([entry]) => {
+  const height = entry.target.getBoundingClientRect().height;
+  if (height > 0) document.documentElement.style.setProperty("--header-height", `${height}px`);
+});
+headerObserver.observe(document.querySelector(".site-header"));
 
 restoreSession();

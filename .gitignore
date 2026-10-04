@@ -61,3 +61,6 @@ downloads/*
 !downloads/fipi-2026/
 downloads/fipi-2026/*
 !downloads/fipi-2026/README.md
+
+# Local interface review artifacts and isolated preview harness
+.cache/

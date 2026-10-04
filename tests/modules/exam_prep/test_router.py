@@ -1,3 +1,5 @@
+from uuid import UUID
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -7,8 +9,19 @@ from app.modules.exam_prep.service import (
     _lesson_units,
     reset_demo_state,
 )
-from app.modules.users.dependencies import get_current_admin
+from app.modules.users.dependencies import get_current_admin, get_current_user
 from app.modules.users.models import User, UserRole, UserStatus
+
+STUDENT_ID = "00000000-0000-4000-8000-000000000001"
+
+
+@pytest.fixture(autouse=True)
+def authenticated_student(client: TestClient) -> None:
+    reset_demo_state()
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id=UUID(STUDENT_ID), display_name="Student",
+        role=UserRole.STUDENT, status=UserStatus.ACTIVE,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -155,7 +168,7 @@ def test_vector_theory_covers_only_current_exam_methods(client: TestClient) -> N
 
     lesson = client.get(
         "/api/v1/exam/math-profile/lesson/current",
-        params={"session_id": "vector-theory-student"},
+        params={"session_id": STUDENT_ID},
     ).json()["data"]
     assert lesson["topic"]["id"] == "vectors"
     assert lesson["theory"]["sections"] == chapter["sections"]
@@ -164,7 +177,7 @@ def test_vector_theory_covers_only_current_exam_methods(client: TestClient) -> N
 def test_completed_theory_is_empty_before_the_first_lesson(client: TestClient) -> None:
     response = client.get(
         "/api/v1/exam/math-profile/theory/completed",
-        params={"session_id": "new-theory-student"},
+        params={"session_id": STUDENT_ID},
     )
 
     assert response.status_code == 200
@@ -174,7 +187,7 @@ def test_completed_theory_is_empty_before_the_first_lesson(client: TestClient) -
 def test_geometry_has_paged_theory_twenty_practice_and_fifteen_homework_tasks(
     client: TestClient,
 ) -> None:
-    session_id = "geometry-course-student"
+    session_id = STUDENT_ID
     chapter = client.get(
         "/api/v1/exam/math-profile/theory",
         params={"topic_id": "geometry"},
@@ -420,7 +433,7 @@ def test_guided_tasks_are_explicitly_bound_to_theory_sections() -> None:
 def test_probability_has_paged_theory_twenty_practice_and_fifteen_homework_tasks(
     client: TestClient,
 ) -> None:
-    session_id = "probability-course-student"
+    session_id = STUDENT_ID
     chapter = client.get(
         "/api/v1/exam/math-profile/theory",
         params={"topic_id": "probability"},
@@ -637,19 +650,19 @@ def test_probability_has_paged_theory_twenty_practice_and_fifteen_homework_tasks
 
 def test_attempt_updates_personal_analytics(client: TestClient) -> None:
     before = client.get(
-        "/api/v1/exam/math-profile/analytics", params={"session_id": "test-student"}
+        "/api/v1/exam/math-profile/analytics", params={"session_id": STUDENT_ID}
     ).json()["data"]
 
     correct = client.post(
         "/api/v1/exam/math-profile/attempts",
-        json={"session_id": "test-student", "task_id": "math-04", "answer": "0,1"},
+        json={"session_id": STUDENT_ID, "task_id": "math-04", "answer": "0,1"},
     )
     incorrect = client.post(
         "/api/v1/exam/math-profile/attempts",
-        json={"session_id": "test-student", "task_id": "math-06", "answer": "6"},
+        json={"session_id": STUDENT_ID, "task_id": "math-06", "answer": "6"},
     )
     after = client.get(
-        "/api/v1/exam/math-profile/analytics", params={"session_id": "test-student"}
+        "/api/v1/exam/math-profile/analytics", params={"session_id": STUDENT_ID}
     ).json()["data"]
 
     assert before["summary"]["attempts"] == 0
@@ -677,7 +690,7 @@ def test_expected_score_history_starts_after_full_diagnostic(client: TestClient)
         response = client.post(
             "/api/v1/exam/math-profile/attempts",
             json={
-                "session_id": "score-history-student",
+                "session_id": STUDENT_ID,
                 "task_id": task["id"],
                 "answer": task["answer_aliases"][0],
             },
@@ -686,7 +699,7 @@ def test_expected_score_history_starts_after_full_diagnostic(client: TestClient)
 
     after_diagnostic = client.get(
         "/api/v1/exam/math-profile/analytics",
-        params={"session_id": "score-history-student"},
+        params={"session_id": STUDENT_ID},
     ).json()["data"]
     assert after_diagnostic["prediction"]["available"] is True
     assert after_diagnostic["prediction"]["predicted_primary_score"] == 32
@@ -707,7 +720,7 @@ def test_expected_score_history_starts_after_full_diagnostic(client: TestClient)
     changed = client.post(
         "/api/v1/exam/math-profile/attempts",
         json={
-            "session_id": "score-history-student",
+            "session_id": STUDENT_ID,
             "task_id": "math-19",
             "answer": "заведомо неверный ответ",
         },
@@ -715,7 +728,7 @@ def test_expected_score_history_starts_after_full_diagnostic(client: TestClient)
     assert changed.status_code == 200
     after_change = client.get(
         "/api/v1/exam/math-profile/analytics",
-        params={"session_id": "score-history-student"},
+        params={"session_id": STUDENT_ID},
     ).json()["data"]
     assert after_change["prediction"]["predicted_primary_score"] == 28
     assert after_change["prediction"]["predicted_test_score"] == 98
@@ -754,17 +767,17 @@ def test_roadmap_moves_frequently_missed_future_lesson_forward(client: TestClien
     for _ in range(2):
         response = client.post(
             "/api/v1/exam/math-profile/attempts",
-            json={"session_id": "adaptive-student", "task_id": "math-06", "answer": "0"},
+            json={"session_id": STUDENT_ID, "task_id": "math-06", "answer": "0"},
         )
         assert response.status_code == 200
 
     roadmap = client.get(
         "/api/v1/exam/math-profile/roadmap",
-        params={"session_id": "adaptive-student"},
+        params={"session_id": STUDENT_ID},
     ).json()["data"]
     lesson = client.get(
         "/api/v1/exam/math-profile/lesson/current",
-        params={"session_id": "adaptive-student"},
+        params={"session_id": STUDENT_ID},
     ).json()["data"]
 
     assert roadmap["adaptation"]["active"] is True
@@ -775,7 +788,7 @@ def test_roadmap_moves_frequently_missed_future_lesson_forward(client: TestClien
 
 
 def test_lesson_flow_has_no_assessment_step(client: TestClient) -> None:
-    session_id = "lesson-without-assessment"
+    session_id = STUDENT_ID
     lesson = client.get(
         "/api/v1/exam/math-profile/lesson/current",
         params={"session_id": session_id},
@@ -804,7 +817,7 @@ def test_lesson_flow_has_no_assessment_step(client: TestClient) -> None:
 def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) -> None:
     lesson = client.get(
         "/api/v1/exam/math-profile/lesson/current",
-        params={"session_id": "lesson-student"},
+        params={"session_id": STUDENT_ID},
     ).json()["data"]
 
     assert lesson["topic"]["id"] == "vectors"
@@ -817,14 +830,14 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
     assert lesson["practice_task"]["prompt"] != lesson["homework_task"]["prompt"]
     homework_before = client.get(
         "/api/v1/exam/math-profile/homework/current",
-        params={"session_id": "lesson-student"},
+        params={"session_id": STUDENT_ID},
     ).json()["data"]
     assert homework_before["status"] == "empty"
 
     blocked = client.post(
         "/api/v1/exam/math-profile/attempts",
         json={
-            "session_id": "lesson-student",
+            "session_id": STUDENT_ID,
             "task_id": "math-02",
             "answer": "-5",
             "mode": "practice",
@@ -835,7 +848,7 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
 
     after_theory = client.post(
         "/api/v1/exam/math-profile/lesson/theory/complete",
-        json={"session_id": "lesson-student", "lesson_unit_id": lesson["unit_id"]},
+        json={"session_id": STUDENT_ID, "lesson_unit_id": lesson["unit_id"]},
     ).json()["data"]
     assert after_theory["current_step"] == "practice"
     assert after_theory["progress"] == 30
@@ -852,7 +865,7 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
     first_attempt = client.post(
         "/api/v1/exam/math-profile/attempts",
         json={
-            "session_id": "lesson-student",
+            "session_id": STUDENT_ID,
             "task_id": "math-02",
             "answer": "0",
             "mode": "practice",
@@ -875,7 +888,7 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
     repeated = client.post(
         "/api/v1/exam/math-profile/attempts",
         json={
-            "session_id": "lesson-student",
+            "session_id": STUDENT_ID,
             "task_id": "math-02",
             "answer": "17",
             "mode": "practice",
@@ -911,7 +924,7 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
     for task_number, answer in enumerate(answers, start=2):
         current_lesson = client.get(
             "/api/v1/exam/math-profile/lesson/current",
-            params={"session_id": "lesson-student"},
+            params={"session_id": STUDENT_ID},
         ).json()["data"]
         current_task = current_lesson["practice_task"]
         vector_prompts.append(current_task["prompt"])
@@ -919,7 +932,7 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
         practice = client.post(
             "/api/v1/exam/math-profile/attempts",
             json={
-                "session_id": "lesson-student",
+                "session_id": STUDENT_ID,
                 "task_id": "math-02",
                 "answer": answer,
                 "mode": "practice",
@@ -967,7 +980,7 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
     first_homework_result = client.post(
         "/api/v1/exam/math-profile/attempts",
         json={
-            "session_id": "lesson-student",
+            "session_id": STUDENT_ID,
             "task_id": "math-02",
             "answer": "0",
             "mode": "homework",
@@ -984,7 +997,7 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
     repeated_homework = client.post(
         "/api/v1/exam/math-profile/attempts",
         json={
-            "session_id": "lesson-student",
+            "session_id": STUDENT_ID,
             "task_id": "math-02",
             "answer": "25",
             "mode": "homework",
@@ -1015,7 +1028,7 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
     for task_number, answer in enumerate(homework_answers, start=2):
         current_homework = client.get(
             "/api/v1/exam/math-profile/homework/current",
-            params={"session_id": "lesson-student"},
+            params={"session_id": STUDENT_ID},
         ).json()["data"]
         current_task = current_homework["task"]
         homework_prompts.append(current_task["prompt"])
@@ -1023,7 +1036,7 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
         homework = client.post(
             "/api/v1/exam/math-profile/attempts",
             json={
-                "session_id": "lesson-student",
+                "session_id": STUDENT_ID,
                 "task_id": "math-02",
                 "answer": answer,
                 "mode": "homework",
@@ -1047,7 +1060,7 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
 
     roadmap = client.get(
         "/api/v1/exam/math-profile/roadmap",
-        params={"session_id": "lesson-student"},
+        params={"session_id": STUDENT_ID},
     ).json()["data"]
     assert roadmap["stages"][0]["topics"][0]["lesson_state"] == "completed"
     assert roadmap["stages"][0]["topics"][0]["progress"] == 100
@@ -1058,7 +1071,7 @@ def test_homework_is_assigned_and_solved_outside_the_lesson(client: TestClient) 
 def test_dashboard_contains_today_schedule_roadmap_score_and_streak(client: TestClient) -> None:
     response = client.get(
         "/api/v1/exam/math-profile/dashboard",
-        params={"session_id": "dashboard-student"},
+        params={"session_id": STUDENT_ID},
     )
 
     assert response.status_code == 200
@@ -1113,6 +1126,7 @@ def test_admin_can_unpublish_task_without_deleting_it(client: TestClient) -> Non
 
 
 def test_admin_endpoints_require_authentication(client: TestClient) -> None:
+    app.dependency_overrides.pop(get_current_user, None)
     response = client.get("/api/v1/exam/math-profile/admin/dashboard")
 
     assert response.status_code == 401

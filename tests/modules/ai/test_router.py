@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
+import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
@@ -13,6 +15,20 @@ from app.modules.ai.provider import (
     DeepSeekProvider,
     get_ai_provider,
 )
+from app.modules.exam_prep.service import reset_demo_state
+from app.modules.users.dependencies import get_current_user
+from app.modules.users.models import User, UserRole, UserStatus
+
+STUDENT_ID = "00000000-0000-4000-8000-000000000001"
+
+
+@pytest.fixture(autouse=True)
+def authenticated_student(client: TestClient) -> None:
+    reset_demo_state()
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id=UUID(STUDENT_ID), display_name="Student",
+        role=UserRole.STUDENT, status=UserStatus.ACTIVE,
+    )
 
 
 class StubAIProvider:
@@ -168,7 +184,7 @@ def test_free_only_mode_allows_an_explicit_free_model(monkeypatch) -> None:
 
 
 def test_ai_explains_only_a_section_from_current_lesson(client: TestClient) -> None:
-    session_id = "ai-theory-student"
+    session_id = STUDENT_ID
     lesson = _current_lesson(client, session_id)
     section = lesson["theory"]["sections"][0]
     provider = StubAIProvider(
@@ -218,7 +234,7 @@ def test_ai_explains_only_a_section_from_current_lesson(client: TestClient) -> N
 
 
 def test_ai_hint_is_bound_to_current_roadmap_practice_task(client: TestClient) -> None:
-    session_id = "ai-hint-student"
+    session_id = STUDENT_ID
     lesson = _current_lesson(client, session_id)
     provider = StubAIProvider(
         {
@@ -259,7 +275,7 @@ def test_ai_hint_is_bound_to_current_roadmap_practice_task(client: TestClient) -
 
 
 def test_ai_analyzes_only_a_saved_incorrect_attempt(client: TestClient) -> None:
-    session_id = "ai-error-student"
+    session_id = STUDENT_ID
     lesson = _current_lesson(client, session_id)
     _complete_theory(client, session_id, lesson)
     practice_lesson = _current_lesson(client, session_id)
@@ -304,7 +320,7 @@ def test_ai_analyzes_only_a_saved_incorrect_attempt(client: TestClient) -> None:
 
 
 def test_ai_request_without_key_returns_safe_service_message(client: TestClient) -> None:
-    session_id = "ai-no-key-student"
+    session_id = STUDENT_ID
     lesson = _current_lesson(client, session_id)
     section = lesson["theory"]["sections"][0]
     provider = DeepSeekProvider(
@@ -330,7 +346,7 @@ def test_ai_request_without_key_returns_safe_service_message(client: TestClient)
 
 
 def test_ai_request_reports_invalid_deepseek_key(client: TestClient) -> None:
-    session_id = "ai-invalid-key-student"
+    session_id = STUDENT_ID
     lesson = _current_lesson(client, session_id)
     section = lesson["theory"]["sections"][0]
     provider = FailingAIProvider(AIProviderAuthenticationFailed("invalid key"))
@@ -351,7 +367,7 @@ def test_ai_request_reports_invalid_deepseek_key(client: TestClient) -> None:
 
 
 def test_ai_request_reports_balance_and_rate_limit(client: TestClient) -> None:
-    session_id = "ai-provider-errors-student"
+    session_id = STUDENT_ID
     lesson = _current_lesson(client, session_id)
     section = lesson["theory"]["sections"][0]
     request_body = {

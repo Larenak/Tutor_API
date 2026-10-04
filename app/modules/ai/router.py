@@ -19,6 +19,7 @@ from app.modules.ai.service import (
     generate_hint,
     get_ai_status,
 )
+from app.modules.exam_prep.dependencies import CurrentUser, owned_session
 
 router = APIRouter(prefix="/ai", tags=["AI tutor"])
 ProviderDependency = Annotated[AIProvider, Depends(get_ai_provider)]
@@ -32,22 +33,28 @@ async def ai_status(provider: ProviderDependency) -> SuccessResponse[AIStatusRea
 @router.post("/explain-theory", response_model=SuccessResponse[TheoryExplanationRead])
 async def explain_current_theory(
     payload: ExplainTheoryCreate,
+    user: CurrentUser,
     provider: ProviderDependency,
 ) -> SuccessResponse[TheoryExplanationRead]:
-    return success(await explain_theory(payload, provider))
+    session_id = owned_session(user, payload.session_id)
+    return success(await explain_theory(payload.model_copy(update={"session_id": session_id}), provider))
 
 
 @router.post("/hint", response_model=SuccessResponse[HintRead])
 async def hint_for_current_task(
     payload: HintCreate,
+    user: CurrentUser,
     provider: ProviderDependency,
 ) -> SuccessResponse[HintRead]:
-    return success(await generate_hint(payload, provider))
+    session_id = owned_session(user, payload.session_id)
+    return success(await generate_hint(payload.model_copy(update={"session_id": session_id}), provider))
 
 
 @router.post("/analyze-error", response_model=SuccessResponse[ErrorAnalysisRead])
 async def analyze_attempt_error(
     payload: AnalyzeErrorCreate,
+    user: CurrentUser,
     provider: ProviderDependency,
 ) -> SuccessResponse[ErrorAnalysisRead]:
-    return success(await analyze_error(payload, provider))
+    session_id = owned_session(user, payload.session_id)
+    return success(await analyze_error(payload.model_copy(update={"session_id": session_id}), provider))

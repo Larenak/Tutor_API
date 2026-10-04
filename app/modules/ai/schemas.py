@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ExplainTheoryCreate(BaseModel):
-    session_id: str = Field(default="local-student", min_length=1, max_length=80)
+    session_id: str | None = Field(default=None, min_length=1, max_length=80)
     lesson_unit_id: str = Field(min_length=1, max_length=100)
     theory_section_id: str = Field(min_length=1, max_length=100)
     question: str = Field(
@@ -15,14 +15,14 @@ class ExplainTheoryCreate(BaseModel):
 
 
 class HintCreate(BaseModel):
-    session_id: str = Field(default="local-student", min_length=1, max_length=80)
+    session_id: str | None = Field(default=None, min_length=1, max_length=80)
     lesson_unit_id: str = Field(min_length=1, max_length=100)
     lesson_task_key: str = Field(min_length=1, max_length=140)
     level: int = Field(default=1, ge=1, le=3)
 
 
 class AnalyzeErrorCreate(BaseModel):
-    session_id: str = Field(default="local-student", min_length=1, max_length=80)
+    session_id: str | None = Field(default=None, min_length=1, max_length=80)
     attempt_id: str = Field(min_length=1, max_length=100)
 
 

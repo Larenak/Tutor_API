@@ -1,8 +1,9 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 
 from app.api.responses import SuccessResponse, success
+from app.modules.exam_prep.dependencies import CurrentUser, LearningSession, owned_session
 from app.modules.exam_prep.schemas import AttemptCreate, TaskStatusUpdate, TheoryCompletionCreate
 from app.modules.exam_prep.service import (
     complete_lesson_theory,
@@ -46,16 +47,16 @@ async def theory(topic_id: str | None = None) -> SuccessResponse[list[dict[str, 
 
 @router.get("/theory/completed", response_model=SuccessResponse[list[dict[str, object]]])
 async def completed_theory(
-    session_id: Annotated[str, Query(min_length=1, max_length=80)] = "local-student",
+    session_id: LearningSession,
 ) -> SuccessResponse[list[dict[str, object]]]:
     return success(get_completed_theory(session_id))
 
 
 @router.post("/attempts", response_model=SuccessResponse[dict[str, object]])
-async def create_attempt(payload: AttemptCreate) -> SuccessResponse[dict[str, object]]:
+async def create_attempt(payload: AttemptCreate, user: CurrentUser) -> SuccessResponse[dict[str, object]]:
     return success(
         submit_attempt(
-            session_id=payload.session_id,
+            session_id=owned_session(user, payload.session_id),
             task_id=payload.task_id,
             answer=payload.answer,
             duration_seconds=payload.duration_seconds,
@@ -68,14 +69,14 @@ async def create_attempt(payload: AttemptCreate) -> SuccessResponse[dict[str, ob
 
 @router.get("/lesson/current", response_model=SuccessResponse[dict[str, object]])
 async def current_lesson(
-    session_id: Annotated[str, Query(min_length=1, max_length=80)] = "local-student",
+    session_id: LearningSession,
 ) -> SuccessResponse[dict[str, object]]:
     return success(get_current_lesson(session_id))
 
 
 @router.get("/homework/current", response_model=SuccessResponse[dict[str, object]])
 async def current_homework(
-    session_id: Annotated[str, Query(min_length=1, max_length=80)] = "local-student",
+    session_id: LearningSession,
 ) -> SuccessResponse[dict[str, object]]:
     return success(get_current_homework(session_id))
 
@@ -86,27 +87,28 @@ async def current_homework(
 )
 async def complete_theory(
     payload: TheoryCompletionCreate,
+    user: CurrentUser,
 ) -> SuccessResponse[dict[str, object]]:
-    return success(complete_lesson_theory(payload.session_id, payload.lesson_unit_id))
+    return success(complete_lesson_theory(owned_session(user, payload.session_id), payload.lesson_unit_id))
 
 
 @router.get("/analytics", response_model=SuccessResponse[dict[str, object]])
 async def analytics(
-    session_id: Annotated[str, Query(min_length=1, max_length=80)] = "local-student",
+    session_id: LearningSession,
 ) -> SuccessResponse[dict[str, object]]:
     return success(get_analytics(session_id))
 
 
 @router.get("/roadmap", response_model=SuccessResponse[dict[str, object]])
 async def roadmap(
-    session_id: Annotated[str, Query(min_length=1, max_length=80)] = "local-student",
+    session_id: LearningSession,
 ) -> SuccessResponse[dict[str, object]]:
     return success(get_roadmap(session_id))
 
 
 @router.get("/dashboard", response_model=SuccessResponse[dict[str, object]])
 async def dashboard(
-    session_id: Annotated[str, Query(min_length=1, max_length=80)] = "local-student",
+    session_id: LearningSession,
 ) -> SuccessResponse[dict[str, object]]:
     return success(get_student_dashboard(session_id))
 

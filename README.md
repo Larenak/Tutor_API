@@ -25,6 +25,28 @@
    async psycopg цикл событий на Windows; на Linux запускается обычный asyncio.
 4. Открыть [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
+## Запуск в Docker
+
+Команды выполняются из каталога с `Dockerfile`. Нужны работающий Docker и
+доступная PostgreSQL с применёнными миграциями.
+
+```powershell
+docker build -t ai-tutor .
+docker run --rm --env-file .env -p 8000:8000 ai-tutor
+```
+
+Откройте [http://127.0.0.1:8000](http://127.0.0.1:8000). Настройки и ключи
+передаются из `.env` при запуске и не включаются в образ. Если PostgreSQL
+запущена на этом же компьютере, в `DATABASE_URL` вместо `localhost` укажите
+адрес, доступный из контейнера: в Docker Desktop обычно это
+`host.docker.internal`. PostgreSQL должна принимать подключения по этому адресу.
+
+Миграции можно применить отдельной командой перед запуском приложения:
+
+```powershell
+docker run --rm --env-file .env ai-tutor alembic upgrade head
+```
+
 ## Подключение AI-репетитора
 
 По умолчанию AI-репетитор использует бесплатный маршрутизатор OpenRouter
